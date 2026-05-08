@@ -1,14 +1,623 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>OrganChain front-end</title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OrganChain</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Share+Tech+Mono&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-    <div>
-        <img src="https://www.corda.net/wp-content/uploads/2016/11/fg005_corda_b.png" alt="Corda" width="500">
-        <h1>OrganChain CorDapp</h1>
-        <p>Learn more about how to build CorDapps at <a href="http://www.github.com/corda/samples-kotlin">organ_chain</a></p>
+
+<!-- ══════════════════════════════════════════════════════════
+     LOGIN PAGE
+══════════════════════════════════════════════════════════ -->
+<div id="login-page">
+    <div class="login-grid-bg"></div>
+
+    <div class="login-brand">
+        <div class="logo-mark">
+            <div class="logo-hex">O</div>
+            <div class="logo-name">Organ<span>Chain</span></div>
+        </div>
+        <p class="login-subtitle">Organ Donation &amp; Allocation System · Blockchain Network · AES-256 Encrypted</p>
     </div>
+
+    <p class="login-instruction">Select your node to sign in</p>
+    <div class="role-grid" id="role-grid"></div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     CREDENTIALS MODAL
+══════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="cred-modal">
+    <div class="modal" style="max-width:420px">
+        <div class="modal-header">
+            <div class="modal-title">Sign In</div>
+            <button class="modal-close" onclick="closeModal('cred-modal')">✕</button>
+        </div>
+        <div class="modal-body">
+            <div class="cred-node-banner" id="cred-node-banner">
+                <div class="cred-node-icon"></div>
+                <div>
+                    <div class="cred-node-name"></div>
+                    <div class="cred-node-sub"></div>
+                </div>
+            </div>
+            <div class="form-grid cols-1" style="gap:0.875rem">
+                <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" id="cred-username" autocomplete="username" />
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="cred-password" autocomplete="current-password" placeholder="Enter password" />
+                </div>
+            </div>
+            <p id="cred-error" style="color:var(--red);font-size:0.78rem;margin-top:0.625rem;min-height:1.1em"></p>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeModal('cred-modal')">Cancel</button>
+            <button class="btn btn-primary" onclick="submitCredentials()">Sign In →</button>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     APP SHELL
+══════════════════════════════════════════════════════════ -->
+<div id="app">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            <div class="logo-hex" style="width:30px;height:30px;font-size:0.65rem">O</div>
+            <div class="brand-text">Organ<span>Chain</span></div>
+        </div>
+
+        <div class="sidebar-user" id="sidebar-user">
+            <div id="user-badge" class="user-role-badge"></div>
+            <div id="user-name" class="user-name"></div>
+            <div id="user-location" class="user-location"></div>
+        </div>
+
+        <nav class="sidebar-nav" id="sidebar-nav"></nav>
+
+        <div class="sidebar-footer">
+            <button class="logout-btn" onclick="logout()">⏻ &nbsp;Sign Out</button>
+        </div>
+    </aside>
+
+    <!-- MAIN -->
+    <div class="main">
+        <div class="topbar">
+            <div class="topbar-title" id="topbar-title">Dashboard</div>
+            <div class="topbar-actions">
+                <span class="live-dot"></span>
+                <span id="topbar-user-chip" class="topbar-user-chip"></span>
+                <div class="relative">
+                    <button class="notif-btn" onclick="toggleNotifPanel()" id="notif-btn">
+                        🔔<span class="notif-dot" id="notif-dot"></span>
+                    </button>
+                    <div class="notif-panel" id="notif-panel">
+                        <div class="notif-panel-header">
+                            <span>Notifications</span>
+                            <button class="btn btn-sm btn-ghost" onclick="clearNotifs()">Clear all</button>
+                        </div>
+                        <div id="notif-list"><div class="notif-empty">No notifications</div></div>
+                    </div>
+                </div>
+                <button class="btn btn-sm btn-ghost" onclick="refreshCurrentPage()" title="Refresh">↻</button>
+            </div>
+        </div>
+
+        <div class="content-area">
+
+            <!-- ── DASHBOARD ── -->
+            <div class="page" id="page-dashboard">
+                <div class="section-header">
+                    <div class="section-title">Dashboard</div>
+                    <div class="section-count" id="last-refresh-time">—</div>
+                    <button class="btn btn-ghost btn-sm ml-auto" onclick="loadDashboard()">↻ Refresh</button>
+                </div>
+
+                <div class="stat-grid">
+                    <div class="stat-card" style="--stat-color:#0c9488">
+                        <div class="stat-label">Available Donors</div>
+                        <div class="stat-value" id="stat-donors">—</div>
+                        <div class="stat-sub">organs ready for matching</div>
+                    </div>
+                    <div class="stat-card" style="--stat-color:#2563eb">
+                        <div class="stat-label">Waiting Recipients</div>
+                        <div class="stat-value" id="stat-recipients">—</div>
+                        <div class="stat-sub">patients on waitlist</div>
+                    </div>
+                    <div class="stat-card" style="--stat-color:#b45309">
+                        <div class="stat-label">Pending Matches</div>
+                        <div class="stat-value" id="stat-pending">—</div>
+                        <div class="stat-sub">awaiting confirmation</div>
+                    </div>
+                    <div class="stat-card" style="--stat-color:#16a34a">
+                        <div class="stat-label">Active Transports</div>
+                        <div class="stat-value" id="stat-transport">—</div>
+                        <div class="stat-sub">organs in transit</div>
+                    </div>
+                </div>
+
+                <div class="dashboard-two-col">
+                    <div class="card" id="dashboard-recent-matches">
+                        <div class="card-header">
+                            <div class="card-title">🔗 Recent Matches</div>
+                            <button class="btn btn-sm btn-ghost" onclick="navigate('matching')">View all →</button>
+                        </div>
+                        <div id="recent-matches-list">
+                            <div class="loading-row"><span class="spinner"></span> Loading…</div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">🚑 Recent Transports</div>
+                            <button class="btn btn-sm btn-ghost" onclick="navigate('transport')">View all →</button>
+                        </div>
+                        <div id="recent-transport-list">
+                            <div class="loading-row"><span class="spinner"></span> Loading…</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── DONORS ── -->
+            <div class="page" id="page-donors">
+                <div class="section-header">
+                    <div class="section-title">Donors</div>
+                    <div class="section-count" id="donors-count">—</div>
+                    <button class="btn btn-primary btn-sm ml-auto" id="btn-register-donor" onclick="openModal('donor-modal')" style="display:none">+ Register Donor</button>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">Donor Registry <span class="lock-pill">🔒 AES-256 Encrypted</span></div>
+                        <div class="filter-row" style="margin:0">
+                            <select id="donor-filter-status" onchange="renderDonors()">
+                                <option value="">All Statuses</option>
+                                <option value="AVAILABLE">Available</option>
+                                <option value="ASSIGNED">Assigned</option>
+                                <option value="EXPIRED">Expired</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Status</th>
+                                <th>Blood Type <span class="lock-pill">🔒</span></th>
+                                <th>Organ <span class="lock-pill">🔒</span></th>
+                                <th>Location <span class="lock-pill">🔒</span></th>
+                                <th>Registered By</th>
+                                <th>Time</th>
+                                <th id="th-trigger-match" style="display:none">Action</th>
+                            </tr>
+                            </thead>
+                            <tbody id="donors-tbody">
+                            <tr><td colspan="8"><div class="loading-row"><span class="spinner"></span> Loading…</div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <p class="form-hint" style="margin-top:0.5rem">
+                    🔒 Medical fields (blood type, organ type, age, weight, height, location) are AES-256-GCM encrypted on the Corda ledger. Only the MatchingAuthority node can decrypt them for compatibility analysis.
+                </p>
+            </div>
+
+            <!-- ── RECIPIENTS ── -->
+            <div class="page" id="page-recipients">
+                <div class="section-header">
+                    <div class="section-title">Recipients</div>
+                    <div class="section-count" id="recipients-count">—</div>
+                    <button class="btn btn-primary btn-sm ml-auto" id="btn-register-recipient" onclick="openModal('recipient-modal')" style="display:none">+ Register Patient</button>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">Transplant Waitlist <span class="lock-pill">🔒 AES-256 Encrypted</span></div>
+                        <div class="filter-row" style="margin:0">
+                            <select id="recipient-filter-status" onchange="renderRecipients()">
+                                <option value="">All Statuses</option>
+                                <option value="WAITING">Waiting</option>
+                                <option value="MATCHED">Matched</option>
+                                <option value="TRANSPLANTED">Transplanted</option>
+                                <option value="REMOVED">Removed</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Status</th>
+                                <th>Blood Type <span class="lock-pill">🔒</span></th>
+                                <th>Organ Needed <span class="lock-pill">🔒</span></th>
+                                <th>Condition <span class="lock-pill">🔒</span></th>
+                                <th>Location <span class="lock-pill">🔒</span></th>
+                                <th>Registered By</th>
+                                <th>Time</th>
+                            </tr>
+                            </thead>
+                            <tbody id="recipients-tbody">
+                            <tr><td colspan="8"><div class="loading-row"><span class="spinner"></span> Loading…</div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <p class="form-hint" style="margin-top:0.5rem">
+                    🔒 All medical fields are AES-256-GCM encrypted. The MatchingAuthority is the sole decryption authority during organ matching.
+                </p>
+            </div>
+
+            <!-- ── MATCHING ── -->
+            <div class="page" id="page-matching">
+                <div class="section-header">
+                    <div class="section-title">Organ Matching</div>
+                    <div class="section-count" id="matching-count">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">Match Records</div>
+                        <div class="filter-row" style="margin:0">
+                            <select id="match-filter-status" onchange="renderMatches()">
+                                <option value="">All Statuses</option>
+                                <option value="PENDING_CONFIRMATION">Pending</option>
+                                <option value="CONFIRMED">Confirmed</option>
+                                <option value="REJECTED">Rejected</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                            <tr>
+                                <th>Match ID</th>
+                                <th>Organ</th>
+                                <th>Score</th>
+                                <th>Cross-Match</th>
+                                <th>Donor Hospital</th>
+                                <th>Recipient Hospital</th>
+                                <th>Status</th>
+                                <th>Matched At</th>
+                                <th>Actions</th>
+                            </tr>
+                            </thead>
+                            <tbody id="matches-tbody">
+                            <tr><td colspan="9"><div class="loading-row"><span class="spinner"></span> Loading…</div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── TRANSPORT ── -->
+            <div class="page" id="page-transport">
+                <div class="section-header">
+                    <div class="section-title">Transport</div>
+                    <div class="section-count" id="transport-count">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-header"><div class="card-title">Active Transports</div></div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                            <tr>
+                                <th>Transport ID</th>
+                                <th>Organ</th>
+                                <th>Origin</th>
+                                <th>Destination</th>
+                                <th>Viability</th>
+                                <th>Status</th>
+                                <th>Dispatched</th>
+                                <th>Actions</th>
+                            </tr>
+                            </thead>
+                            <tbody id="transport-tbody">
+                            <tr><td colspan="8"><div class="loading-row"><span class="spinner"></span> Loading…</div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── AUDIT ── -->
+            <div class="page" id="page-audit">
+                <div class="section-header">
+                    <div class="section-title">Audit Trail</div>
+                    <button class="btn btn-ghost btn-sm ml-auto" onclick="loadAudit()">↻ Refresh</button>
+                </div>
+                <div class="card card-body" id="audit-list">
+                    <div class="loading-row"><span class="spinner"></span> Loading…</div>
+                </div>
+            </div>
+
+            <!-- ── MY RECORDS ── -->
+            <div class="page" id="page-my-records">
+                <div class="section-header">
+                    <div class="section-title">My Records</div>
+                </div>
+                <div class="my-records-banner">
+                    <div class="banner-icon">🪪</div>
+                    <div class="banner-text">
+                        <h3 id="my-records-title">Hospital Records</h3>
+                        <p>Records registered by your node. Medical details are AES-256 encrypted on the ledger.</p>
+                    </div>
+                </div>
+                <div class="dashboard-two-col">
+                    <div class="card">
+                        <div class="card-header"><div class="card-title">My Donors</div></div>
+                        <div id="my-donors-list" class="card-body"></div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><div class="card-title">My Recipients</div></div>
+                        <div id="my-recipients-list" class="card-body"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── SETTINGS ── -->
+            <div class="page" id="page-settings">
+                <div class="section-header"><div class="section-title">Settings</div></div>
+                <div class="settings-section">
+                    <h3>API Connection</h3>
+                    <div class="form-grid cols-1" style="max-width:480px">
+                        <div class="form-group">
+                            <label>Spring Boot API Base URL</label>
+                            <input type="text" id="settings-api-url" placeholder="http://localhost:8080" />
+                            <p class="form-hint">Change this to match the port of the node you are connecting to.</p>
+                        </div>
+                        <div class="flex gap-2">
+                            <button class="btn btn-primary" onclick="saveSettings()">Save</button>
+                            <button class="btn btn-ghost" onclick="testConnection()">Test Connection</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="settings-section">
+                    <h3>Node Port Reference</h3>
+                    <div class="table-wrap" style="max-width:620px">
+                        <table>
+                            <thead><tr><th>Node</th><th>Role</th><th>RPC Port</th><th>Spring Boot Port</th></tr></thead>
+                            <tbody>
+                            <tr><td>HospitalA</td><td>Register donors &amp; recipients</td><td>10006</td><td>8080</td></tr>
+                            <tr><td>HospitalB</td><td>Register donors &amp; recipients</td><td>10009</td><td>8081</td></tr>
+                            <tr><td>MatchingAuthority</td><td>Decrypt + run matching algorithm</td><td>10012</td><td>8082</td></tr>
+                            <tr><td>AdminNode</td><td>Confirm / reject matches</td><td>10015</td><td>8083</td></tr>
+                            <tr><td>Government</td><td>Audit observer</td><td>10018</td><td>—</td></tr>
+                            <tr><td>Transporter</td><td>Transport dispatch &amp; update</td><td>10021</td><td>—</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="settings-section">
+                    <h3>Encryption Keys</h3>
+                    <div class="key-info-card">
+                        <strong>🔑 Key Ceremony (one-time setup, production)</strong>
+                        Generate a shared 256-bit medical field key:<br/>
+                        <code>openssl rand -base64 32</code><br/><br/>
+                        Add to each node's <code>node.conf → custom.odat_medical_field_key</code>.<br/>
+                        The MatchingAuthority is the <strong>only node that decrypts</strong>. Hospital nodes only encrypt at registration.
+                    </div>
+                </div>
+                <div class="settings-section">
+                    <h3>Blood Type Compatibility</h3>
+                    <div class="card card-body" style="max-width:480px">
+                        <div id="compat-chart"></div>
+                    </div>
+                </div>
+            </div>
+
+        </div><!-- /content-area -->
+    </div><!-- /main -->
+</div><!-- /app -->
+
+<!-- ══════════════════════════════════════════════════════════
+     MODALS
+══════════════════════════════════════════════════════════ -->
+
+<!-- Register Donor -->
+<div class="modal-overlay" id="donor-modal">
+    <div class="modal">
+        <div class="modal-header">
+            <div class="modal-title">Register Donor</div>
+            <button class="modal-close" onclick="closeModal('donor-modal')">✕</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group"><label>Full Name *</label><input type="text" id="d-name" placeholder="Donor full name" /></div>
+                <div class="form-group"><label>Contact *</label><input type="text" id="d-contact" placeholder="Phone or email" /></div>
+                <div class="form-group">
+                    <label>Blood Type *</label>
+                    <select id="d-blood">
+                        <option value="">— Select —</option>
+                        <option>A_POSITIVE</option><option>A_NEGATIVE</option>
+                        <option>B_POSITIVE</option><option>B_NEGATIVE</option>
+                        <option>AB_POSITIVE</option><option>AB_NEGATIVE</option>
+                        <option>O_POSITIVE</option><option>O_NEGATIVE</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Organ Type *</label>
+                    <select id="d-organ">
+                        <option value="">— Select —</option>
+                        <option>KIDNEY</option><option>LIVER</option><option>HEART</option>
+                        <option>LUNG</option><option>PANCREAS</option><option>CORNEA</option>
+                        <option>SMALL_INTESTINE</option>
+                    </select>
+                </div>
+                <div class="form-group"><label>Age *</label><input type="number" id="d-age" min="0" max="120" placeholder="Years" /></div>
+                <div class="form-group"><label>Weight (kg) *</label><input type="number" id="d-weight" step="0.1" min="1" placeholder="e.g. 65.5" /></div>
+                <div class="form-group"><label>Height (cm) *</label><input type="number" id="d-height" step="0.1" min="50" placeholder="e.g. 170" /></div>
+                <div class="form-group"><label>Location (City) *</label><input type="text" id="d-location" placeholder="e.g. Hyderabad" /></div>
+                <div class="form-group full">
+                    <div class="checkbox-row">
+                        <input type="checkbox" id="d-deceased" />
+                        <label for="d-deceased">Deceased Donor — grants +15 pts location-match bonus</label>
+                    </div>
+                </div>
+            </div>
+            <div class="enc-info-banner">
+                <span class="enc-icon">🔒</span>
+                <div>
+                    <strong>Full-Field AES-256-GCM Encryption</strong>
+                    All fields above — name, contact, blood type, organ type, age, weight, height, location — are encrypted before writing to the Corda ledger. Only the MatchingAuthority node holds the decryption key.
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeModal('donor-modal')">Cancel</button>
+            <button class="btn btn-primary" onclick="registerDonor()">🔒 Encrypt &amp; Register on Ledger</button>
+        </div>
+    </div>
+</div>
+
+<!-- Register Recipient -->
+<div class="modal-overlay" id="recipient-modal">
+    <div class="modal">
+        <div class="modal-header">
+            <div class="modal-title">Register Recipient (Patient)</div>
+            <button class="modal-close" onclick="closeModal('recipient-modal')">✕</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-grid">
+                <div class="form-group"><label>Full Name *</label><input type="text" id="r-name" placeholder="Patient name" /></div>
+                <div class="form-group"><label>Contact *</label><input type="text" id="r-contact" placeholder="Phone or email" /></div>
+                <div class="form-group">
+                    <label>Blood Type *</label>
+                    <select id="r-blood">
+                        <option value="">— Select —</option>
+                        <option>A_POSITIVE</option><option>A_NEGATIVE</option>
+                        <option>B_POSITIVE</option><option>B_NEGATIVE</option>
+                        <option>AB_POSITIVE</option><option>AB_NEGATIVE</option>
+                        <option>O_POSITIVE</option><option>O_NEGATIVE</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Organ Needed *</label>
+                    <select id="r-organ">
+                        <option value="">— Select —</option>
+                        <option>KIDNEY</option><option>LIVER</option><option>HEART</option>
+                        <option>LUNG</option><option>PANCREAS</option><option>CORNEA</option>
+                        <option>SMALL_INTESTINE</option>
+                    </select>
+                </div>
+                <div class="form-group"><label>Age *</label><input type="number" id="r-age" min="0" max="120" /></div>
+                <div class="form-group"><label>Weight (kg) *</label><input type="number" id="r-weight" step="0.1" /></div>
+                <div class="form-group"><label>Height (cm) *</label><input type="number" id="r-height" step="0.1" /></div>
+                <div class="form-group"><label>Location (City) *</label><input type="text" id="r-location" placeholder="e.g. Mumbai" /></div>
+                <div class="form-group">
+                    <label>Condition Score (1–10) *</label>
+                    <input type="number" id="r-condition" min="1" max="10" placeholder="10 = most critical" />
+                    <p class="form-hint">Urgency weight = score × 5 pts (max 50)</p>
+                </div>
+                <div class="form-group">
+                    <label>Waitlist Serial # *</label>
+                    <input type="number" id="r-serial" min="1" placeholder="e.g. 1" />
+                    <p class="form-hint">Lower serial = higher tie-break priority</p>
+                </div>
+                <div class="form-group full">
+                    <div class="checkbox-row">
+                        <input type="checkbox" id="r-paired" />
+                        <label for="r-paired">Has Paired Donor — Kidney Paired Exchange (+20 pts)</label>
+                    </div>
+                </div>
+            </div>
+            <div class="enc-info-banner">
+                <span class="enc-icon">🔒</span>
+                <div>
+                    <strong>Full-Field AES-256-GCM Encryption</strong>
+                    All fields — name, contact, blood type, organ needed, age, weight, height, condition score, serial number, location — are encrypted before writing to the Corda ledger.
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeModal('recipient-modal')">Cancel</button>
+            <button class="btn btn-primary" onclick="registerRecipient()">🔒 Encrypt &amp; Register on Ledger</button>
+        </div>
+    </div>
+</div>
+
+<!-- Reject Match -->
+<div class="modal-overlay" id="reject-modal">
+    <div class="modal" style="max-width:420px">
+        <div class="modal-header">
+            <div class="modal-title">Reject Match</div>
+            <button class="modal-close" onclick="closeModal('reject-modal')">✕</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>Rejection Reason *</label>
+                <textarea id="reject-reason" rows="4" placeholder="e.g. Cross-match failure, patient condition changed…"></textarea>
+            </div>
+            <input type="hidden" id="reject-match-id" />
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeModal('reject-modal')">Cancel</button>
+            <button class="btn btn-danger" onclick="confirmReject()">Confirm Rejection</button>
+        </div>
+    </div>
+</div>
+
+<!-- Score Breakdown -->
+<div class="modal-overlay" id="score-modal">
+    <div class="modal" style="max-width:420px">
+        <div class="modal-header">
+            <div class="modal-title">Match Score Breakdown</div>
+            <button class="modal-close" onclick="closeModal('score-modal')">✕</button>
+        </div>
+        <div class="modal-body" id="score-modal-content"></div>
+    </div>
+</div>
+
+<!-- Update Transport Status -->
+<div class="modal-overlay" id="transport-update-modal">
+    <div class="modal" style="max-width:360px">
+        <div class="modal-header">
+            <div class="modal-title">Update Transport Status</div>
+            <button class="modal-close" onclick="closeModal('transport-update-modal')">✕</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>New Status</label>
+                <select id="transport-new-status">
+                    <option value="IN_TRANSIT">In Transit</option>
+                    <option value="DELIVERED">Delivered</option>
+                    <option value="FAILED">Failed</option>
+                </select>
+            </div>
+            <input type="hidden" id="update-transport-id" />
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeModal('transport-update-modal')">Cancel</button>
+            <button class="btn btn-primary" onclick="submitTransportUpdate()">Update</button>
+        </div>
+    </div>
+</div>
+
+<!-- ══ Match Summary Modal (MatchingAuthority only) ══ -->
+<div class="modal-overlay" id="summary-modal">
+    <div class="modal" style="max-width:640px">
+        <div class="modal-header">
+            <div class="modal-title">🔓 Decrypted Match Summary</div>
+            <button class="modal-close" onclick="closeModal('summary-modal')">✕</button>
+        </div>
+        <div class="modal-body" id="summary-modal-content">
+            <div class="loading-row"><span class="spinner"></span> Decrypting…</div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeModal('summary-modal')">Close</button>
+        </div>
+    </div>
+</div>
+
+<div id="toast-container"></div>
+<script src="app.js"></script>
 </body>
 </html>
