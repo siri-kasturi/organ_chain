@@ -1,42 +1,50 @@
 'use strict';
 
 // ══════════════════════════════════════════════════════════════
-// RBAC CONFIGURATION
+// RBAC — Six-node topology (MatchingAuthority added)
 // ══════════════════════════════════════════════════════════════
 const ROLES = {
   hospital_a: {
     id: 'hospital_a', label: 'Hospital A', node: 'HospitalA', city: 'Hyderabad',
-    port: 10006, color: '#0c9488', icon: '🏥',
+    port: 8080, color: '#0c9488', icon: '🏥',
     credentials: { username: 'hospitalA', password: 'HospA@2024' },
     permissions: new Set(['register_donor','register_recipient','view_donors','view_recipients','view_matches','view_transport','my_records','settings']),
     badge: 'HOSPITAL', dashboardStats: ['donors','recipients','matches','transport']
   },
   hospital_b: {
     id: 'hospital_b', label: 'Hospital B', node: 'HospitalB', city: 'Mumbai',
-    port: 10008, color: '#2563eb', icon: '🏥',
+    port: 8081, color: '#2563eb', icon: '🏥',
     credentials: { username: 'hospitalB', password: 'HospB@2024' },
     permissions: new Set(['register_donor','register_recipient','view_donors','view_recipients','view_matches','view_transport','my_records','settings']),
     badge: 'HOSPITAL', dashboardStats: ['donors','recipients','matches','transport']
   },
+  matching_authority: {
+    id: 'matching_authority', label: 'Matching Authority', node: 'MatchingAuthority', city: 'Chennai',
+    port: 8082, color: '#4f46e5', icon: '🔐',
+    credentials: { username: 'matchingAuth', password: 'MatchAuth@2024' },
+    // Only the MA can trigger matching and view decrypted summaries
+    permissions: new Set(['view_donors','view_recipients','trigger_match','view_matches','view_summary','view_transport','audit','settings']),
+    badge: 'MATCHING-AUTH', dashboardStats: ['donors','recipients','matches','transport']
+  },
   admin: {
-    id: 'admin', label: 'Admin', node: 'AdminNode', city: 'Chennai',
-    port: 10010, color: '#b45309', icon: '⚕️',
+    id: 'admin', label: 'Admin Node', node: 'AdminNode', city: 'Chennai',
+    port: 8083, color: '#b45309', icon: '⚕️',
     credentials: { username: 'admin', password: 'Admin@2024' },
-    permissions: new Set(['view_donors','view_recipients','trigger_match','confirm_match','reject_match','view_matches','view_transport','audit','settings']),
+    permissions: new Set(['view_donors','view_recipients','confirm_match','reject_match','dispatch_transport','view_matches','view_transport','audit','settings']),
     badge: 'ADMIN', dashboardStats: ['donors','recipients','matches','transport']
   },
   government: {
     id: 'government', label: 'Government', node: 'Government', city: 'Delhi',
-    port: 10012, color: '#7c3aed', icon: '🏛️',
+    port: 8084, color: '#7c3aed', icon: '🏛️',
     credentials: { username: 'govt', password: 'Govt@2024' },
     permissions: new Set(['view_donors','view_recipients','view_matches','view_transport','audit']),
     badge: 'GOVT', dashboardStats: ['donors','recipients','matches','transport']
   },
   transporter: {
     id: 'transporter', label: 'Transporter', node: 'Transporter', city: 'Chennai',
-    port: 10014, color: '#16a34a', icon: '🚑',
+    port: 8085, color: '#16a34a', icon: '🚑',
     credentials: { username: 'transporter', password: 'Trans@2024' },
-    permissions: new Set(['dispatch_transport','update_transport','view_transport','settings']),
+    permissions: new Set(['update_transport','view_transport','settings']),
     badge: 'TRANSPORT', dashboardStats: ['transport']
   }
 };
@@ -46,6 +54,7 @@ const PERM_LABELS = {
   view_donors: 'View Donors', view_recipients: 'View Recipients',
   trigger_match: 'Trigger Matching', confirm_match: 'Confirm Match',
   reject_match: 'Reject Match', view_matches: 'View Matches',
+  view_summary: 'Decrypted Summary',
   view_transport: 'View Transport', dispatch_transport: 'Dispatch',
   update_transport: 'Update Status', audit: 'Audit Trail',
   my_records: 'My Records', settings: 'Settings'
@@ -76,7 +85,6 @@ let state = {
   currentPage: 'dashboard',
   donors: [], recipients: [], matches: [], transports: [],
   notifications: [], timerIntervals: [],
-  myDonorRecord: null, myRecipientRecord: null,
   pendingMatchCount: 0,
 };
 
@@ -93,7 +101,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ══════════════════════════════════════════════════════════════
-// LOGIN — role select → credentials modal → app
+// LOGIN
 // ══════════════════════════════════════════════════════════════
 let pendingRoleId = null;
 
@@ -110,7 +118,7 @@ function buildRoleGrid() {
     card.innerHTML = `
       <div class="role-icon">${role.icon}</div>
       <div class="role-name">${role.label}</div>
-      <div class="role-city">${role.city}</div>
+      <div class="role-city">${role.city} · :${role.port}</div>
       <div class="role-perms">${perms}${role.permissions.size > 3 ? `<span class="perm-tag">+${role.permissions.size - 3} more</span>` : ''}</div>
     `;
     grid.appendChild(card);
@@ -120,13 +128,11 @@ function buildRoleGrid() {
 function openCredModal(roleId) {
   pendingRoleId = roleId;
   const role = ROLES[roleId];
-  // Set banner
   const banner = document.getElementById('cred-node-banner');
   banner.querySelector('.cred-node-icon').textContent = role.icon;
   banner.querySelector('.cred-node-icon').style.background = role.color + '18';
   banner.querySelector('.cred-node-name').textContent = role.label;
-  banner.querySelector('.cred-node-sub').textContent = role.city;
-  // Pre-fill username hint (not password for security feel)
+  banner.querySelector('.cred-node-sub').textContent = `${role.city} · port ${role.port}`;
   document.getElementById('cred-username').value = role.credentials.username;
   document.getElementById('cred-password').value = '';
   document.getElementById('cred-error').textContent = '';
@@ -142,7 +148,7 @@ function submitCredentials() {
   const errEl = document.getElementById('cred-error');
 
   if (user !== role.credentials.username || pass !== role.credentials.password) {
-    errEl.textContent = 'Incorrect username or password. Please try again.';
+    errEl.textContent = 'Incorrect username or password.';
     document.getElementById('cred-password').value = '';
     document.getElementById('cred-password').focus();
     return;
@@ -150,11 +156,11 @@ function submitCredentials() {
 
   closeModal('cred-modal');
   state.role = role;
-  state.apiBase = 'http://localhost:8080';
+  state.apiBase = `http://localhost:${role.port}`;
+  document.getElementById('settings-api-url').value = state.apiBase;
   initApp();
 }
 
-// Allow pressing Enter in password field
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('cred-password')?.addEventListener('keydown', e => {
     if (e.key === 'Enter') submitCredentials();
@@ -166,8 +172,16 @@ function initApp() {
   document.getElementById('app').classList.add('active');
   buildSidebar();
   populateUserBadge();
+  // Show/hide hospital-only buttons
+  const isHospital = state.role.permissions.has('register_donor');
+  const isMA       = state.role.id === 'matching_authority';
+  document.getElementById('btn-register-donor')?.style && (document.getElementById('btn-register-donor').style.display = isHospital ? '' : 'none');
+  document.getElementById('btn-register-recipient')?.style && (document.getElementById('btn-register-recipient').style.display = isHospital ? '' : 'none');
+  // Show trigger-match column only for MatchingAuthority
+  const thTrigger = document.getElementById('th-trigger-match');
+  if (thTrigger) thTrigger.style.display = isMA ? '' : 'none';
   navigate('dashboard');
-  addNotif('Signed in', `Welcome, ${state.role.label}`, 'success');
+  addNotif('Signed in', `Welcome, ${state.role.label} (${state.role.city})`, 'success');
 }
 
 function logout() {
@@ -175,29 +189,25 @@ function logout() {
   state.timerIntervals = [];
   pendingRoleId = null;
   state.role = null;
-  state.myDonorRecord = null;
-  state.myRecipientRecord = null;
   document.getElementById('app').classList.remove('active');
-  document.getElementById('login-page').style.display = 'flex';
-  document.querySelectorAll('.role-card').forEach(c => c.classList.remove('selected'));
+  document.getElementById('login-page').style.display = '';
+  state = { ...state, role: null, donors: [], recipients: [], matches: [], transports: [], notifications: [], timerIntervals: [] };
 }
 
 // ══════════════════════════════════════════════════════════════
-// SIDEBAR & NAVIGATION
+// SIDEBAR + NAV
 // ══════════════════════════════════════════════════════════════
 function buildSidebar() {
   const nav = document.getElementById('sidebar-nav');
-  nav.innerHTML = '<div class="nav-section-label">Navigation</div>';
+  nav.innerHTML = '';
   NAV_ITEMS.forEach(item => {
     if (item.perm && !state.role.permissions.has(item.perm)) return;
     const el = document.createElement('div');
-    el.className = 'nav-item';
-    el.id = `nav-${item.id}`;
+    el.className = 'nav-item' + (item.id === 'matching' && state.role.id === 'matching_authority' ? ' ma-nav' : '');
+    el.dataset.page = item.id;
     el.onclick = () => navigate(item.id);
-    el.innerHTML = `<span class="nav-icon">${item.icon}</span> ${item.label}`;
-    if (item.id === 'matching') {
-      el.innerHTML += `<span class="nav-badge" id="nav-badge-matching" style="display:none">0</span>`;
-    }
+    el.innerHTML = `<span class="nav-icon">${item.icon}</span>${item.label}`;
+    if (item.id === 'matching') el.id = 'nav-matching';
     nav.appendChild(el);
   });
 }
@@ -206,775 +216,535 @@ function populateUserBadge() {
   const r = state.role;
   const badge = document.getElementById('user-badge');
   badge.textContent = r.badge;
-  badge.style.background = r.color + '1a';
+  badge.style.background = r.color + '18';
   badge.style.color = r.color;
-  badge.style.border = `1px solid ${r.color}44`;
+  badge.style.border = `1px solid ${r.color}33`;
   document.getElementById('user-name').textContent = r.label;
-  document.getElementById('user-location').textContent = r.city;
-  // Topbar chip
-  const chip = document.getElementById('topbar-user-chip');
-  if (chip) chip.textContent = `${r.icon} ${r.label}`;
+  document.getElementById('user-location').textContent = `${r.city} · :${r.port}`;
+  document.getElementById('topbar-user-chip').innerHTML = `${r.icon} ${r.label}`;
 }
 
 function navigate(pageId) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  const page = document.getElementById(`page-${pageId}`);
-  if (!page) return;
-  page.classList.add('active');
-  const navEl = document.getElementById(`nav-${pageId}`);
-  if (navEl) navEl.classList.add('active');
+  const el = document.getElementById(`page-${pageId}`);
+  const nav = document.querySelector(`[data-page="${pageId}"]`);
+  if (!el) return;
+  el.classList.add('active');
+  if (nav) nav.classList.add('active');
   state.currentPage = pageId;
   document.getElementById('topbar-title').textContent =
     NAV_ITEMS.find(i => i.id === pageId)?.label || pageId;
-
-  if (pageId === 'dashboard')  loadDashboard();
-  if (pageId === 'my-records') loadMyRecords();
-  if (pageId === 'donors')     loadDonors();
-  if (pageId === 'recipients') loadRecipients();
-  if (pageId === 'matching')   loadMatching();
-  if (pageId === 'transport')  loadTransport();
-  if (pageId === 'audit')      buildAuditTrail();
+  refreshCurrentPage();
 }
 
-function refreshCurrentPage() { navigate(state.currentPage); }
+function refreshCurrentPage() {
+  const p = state.currentPage;
+  if (p === 'dashboard')   loadDashboard();
+  else if (p === 'donors')     loadDonors();
+  else if (p === 'recipients') loadRecipients();
+  else if (p === 'matching')   loadMatches();
+  else if (p === 'transport')  loadTransport();
+  else if (p === 'audit')      loadAudit();
+  else if (p === 'my-records') loadMyRecords();
+}
 
 // ══════════════════════════════════════════════════════════════
-// API HELPERS
+// API HELPER
 // ══════════════════════════════════════════════════════════════
 async function api(method, path, body) {
-  const opts = { method, headers: { 'Content-Type': 'application/json' } };
-  if (body) opts.body = JSON.stringify(body);
   try {
+    const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    if (body) opts.body = JSON.stringify(body);
     const res = await fetch(state.apiBase + path, opts);
     const json = await res.json();
     return { ok: res.ok, status: res.status, data: json };
-  } catch (e) {
-    return { ok: false, error: e.message, data: null };
+  } catch (err) {
+    return { ok: false, error: err.message };
   }
 }
 
 // ══════════════════════════════════════════════════════════════
-// DASHBOARD — only show stats relevant to the role
+// DASHBOARD
 // ══════════════════════════════════════════════════════════════
 async function loadDashboard() {
-  document.getElementById('last-refresh-time').textContent = 'Refreshing…';
-  const perms = state.role.permissions;
-
-  // Only fetch what this role can see
-  const calls = await Promise.all([
-    perms.has('view_donors')    ? api('GET', '/api/donor/available')  : Promise.resolve({ ok: false }),
-    perms.has('view_recipients')? api('GET', '/api/recipient/waiting'): Promise.resolve({ ok: false }),
-    perms.has('view_matches')   ? api('GET', '/api/match/list')       : Promise.resolve({ ok: false }),
-    perms.has('view_transport') ? api('GET', '/api/transport/list')   : Promise.resolve({ ok: false }),
-  ]);
-
-  const [donors, recipients, matches, transports] = calls;
-  const dList = donors.ok && donors.data?.data ? donors.data.data : [];
-  const rList = recipients.ok && recipients.data?.data ? recipients.data.data : [];
-  const allMatches = matches.ok && matches.data?.data ? matches.data.data : [];
-  const allTransports = transports.ok && transports.data?.data ? transports.data.data : [];
-  const pending = allMatches.filter(m => m.status === 'PENDING_CONFIRMATION');
-  const active  = allTransports.filter(t => ['DISPATCHED','IN_TRANSIT'].includes(t.status));
-
-  // Show/hide stat cards based on role permissions
-  const statDonors = document.getElementById('stat-card-donors');
-  const statRecip  = document.getElementById('stat-card-recipients');
-  const statPend   = document.getElementById('stat-card-pending');
-  const statTrans  = document.getElementById('stat-card-transport');
-
-  if (statDonors) statDonors.style.display = perms.has('view_donors') ? '' : 'none';
-  if (statRecip)  statRecip.style.display  = perms.has('view_recipients') ? '' : 'none';
-  if (statPend)   statPend.style.display   = perms.has('view_matches') ? '' : 'none';
-  if (statTrans)  statTrans.style.display  = perms.has('view_transport') ? '' : 'none';
-
-  document.getElementById('stat-donors').textContent     = dList.length;
-  document.getElementById('stat-recipients').textContent = rList.length;
-  document.getElementById('stat-pending').textContent    = pending.length;
-  document.getElementById('stat-transport').textContent  = active.length;
-  document.getElementById('last-refresh-time').textContent = new Date().toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit'});
-
-  state.donors = dList; state.recipients = rList;
-  state.matches = allMatches; state.transports = allTransports;
-
-  // Match badge
-  const badge = document.getElementById('nav-badge-matching');
-  if (badge) { badge.textContent = pending.length; badge.style.display = pending.length > 0 ? 'flex' : 'none'; }
-
-  // Sections visible by role
-  const recentMatchesCard = document.getElementById('dashboard-recent-matches');
-  const viabilityCard     = document.getElementById('dashboard-viability');
-  const compatCard        = document.getElementById('dashboard-compat');
-
-  if (recentMatchesCard) recentMatchesCard.style.display = perms.has('view_matches') ? '' : 'none';
-  if (viabilityCard)     viabilityCard.style.display     = perms.has('view_transport') ? '' : 'none';
-  if (compatCard)        compatCard.style.display        = (perms.has('view_donors') || perms.has('view_recipients')) ? '' : 'none';
-
-  renderRecentMatches(allMatches);
-  renderViabilityTimers(active);
-}
-
-function renderRecentMatches(matches) {
-  const el = document.getElementById('recent-matches-list');
-  if (!el) return;
-  const recent = matches.slice(0, 5);
-  if (!recent.length) {
-    el.innerHTML = '<div class="empty-state"><div class="empty-icon">🔗</div><p>No matches yet</p></div>';
-    return;
-  }
-  el.innerHTML = recent.map(m => `
-    <div class="audit-entry">
-      <div style="padding-top:4px">${getMatchBadge(m.status)}</div>
-      <div class="audit-content">
-        <div class="audit-action">${organIcon(m.organType)} ${m.organType} · Score ${m.matchScore.toFixed(1)}</div>
-        <div class="audit-meta">${m.donorHospital} → ${m.recipientHospital}</div>
-      </div>
-      <div class="text-sm">${timeAgo(m.matchedAt)}</div>
-    </div>
-  `).join('');
-}
-
-function renderViabilityTimers(active) {
-  const el = document.getElementById('viability-list');
-  if (!el) return;
-  state.timerIntervals.forEach(clearInterval);
-  state.timerIntervals = [];
-
-  if (!active.length) {
-    el.innerHTML = '<div class="empty-state"><div class="empty-icon">✅</div><p>No active transports</p></div>';
-    document.getElementById('critical-count-badge').style.display = 'none';
-    return;
-  }
-
-  el.innerHTML = active.map(t => {
-    const wh = VIABILITY[t.organType] || 24;
-    return `
-      <div class="flex items-center gap-2 mb-3" style="border-bottom:1px solid var(--border);padding-bottom:0.75rem">
-        <span style="font-size:1.2rem">${organIcon(t.organType)}</span>
-        <div>
-          <div style="font-size:0.85rem;font-weight:600;color:var(--text)">${t.organType} · ${t.originHospital} → ${t.destinationHospital}</div>
-          <div class="text-sm">${wh}h viability window</div>
-        </div>
-        <span class="ml-auto viability-timer" id="timer-${t.linearId.replace(/[^a-z0-9]/gi,'_')}">—</span>
-      </div>`;
-  }).join('');
-
-  active.forEach(t => {
-    const wh = VIABILITY[t.organType] || 24;
-    const expiry = new Date(t.dispatchTime).getTime() + wh * 3600000;
-    const timerId = `timer-${t.linearId.replace(/[^a-z0-9]/gi,'_')}`;
-    const iv = setInterval(() => {
-      const el = document.getElementById(timerId);
-      if (!el) { clearInterval(iv); return; }
-      const rem = expiry - Date.now();
-      if (rem <= 0) { el.textContent = 'EXPIRED'; el.className = 'viability-timer timer-critical'; return; }
-      const h = Math.floor(rem/3600000), m = Math.floor((rem%3600000)/60000), s = Math.floor((rem%60000)/1000);
-      el.textContent = `${h}h ${m}m ${s}s`;
-      el.className = 'viability-timer ' + (h < 1 ? 'timer-critical' : h < 4 ? 'timer-warning' : 'timer-ok');
-    }, 1000);
-    state.timerIntervals.push(iv);
-  });
-
-  const crit = active.filter(t => {
-    const wh = VIABILITY[t.organType] || 24;
-    return (new Date(t.dispatchTime).getTime() + wh * 3600000 - Date.now()) < 3600000;
-  }).length;
-  const badge = document.getElementById('critical-count-badge');
-  badge.textContent = `${crit} CRITICAL`;
-  badge.style.display = crit > 0 ? 'inline-flex' : 'none';
-}
-
-// ══════════════════════════════════════════════════════════════
-// MY RECORDS — hospitals can view their own registered records
-// ══════════════════════════════════════════════════════════════
-async function loadMyRecords() {
-  const el = document.getElementById('my-records-content');
-  el.innerHTML = '<div class="loading-row"><span class="spinner"></span> Loading your records…</div>';
-
-  const [donorsRes, recipientsRes] = await Promise.all([
+  const [donors, recips, matches, transports] = await Promise.all([
     api('GET', '/api/donor/list'),
     api('GET', '/api/recipient/list'),
+    api('GET', '/api/match/list'),
+    api('GET', '/api/transport/list'),
   ]);
 
-  const nodeName = state.role.node; // e.g. "HospitalA"
-  const myDonors = (donorsRes.ok && donorsRes.data?.data)
-    ? donorsRes.data.data.filter(d => d.registeredBy && d.registeredBy.includes(nodeName))
-    : [];
-  const myRecipients = (recipientsRes.ok && recipientsRes.data?.data)
-    ? recipientsRes.data.data.filter(r => r.registeredBy && r.registeredBy.includes(nodeName))
-    : [];
+  const dList = donors.ok  ? donors.data?.data  || [] : [];
+  const rList = recips.ok  ? recips.data?.data  || [] : [];
+  const mList = matches.ok ? matches.data?.data || [] : [];
+  const tList = transports.ok ? transports.data?.data || [] : [];
 
-  state.myDonorRecord = myDonors;
-  state.myRecipientRecord = myRecipients;
+  state.donors = dList; state.recipients = rList;
+  state.matches = mList; state.transports = tList;
 
-  let html = '';
+  document.getElementById('stat-donors').textContent    = dList.filter(d => d.status === 'AVAILABLE').length;
+  document.getElementById('stat-recipients').textContent= rList.filter(r => r.status === 'WAITING').length;
+  document.getElementById('stat-pending').textContent   = mList.filter(m => m.status === 'PENDING_CONFIRMATION').length;
+  document.getElementById('stat-transport').textContent = tList.filter(t => t.status === 'IN_TRANSIT' || t.status === 'DISPATCHED').length;
+  document.getElementById('last-refresh-time').textContent = new Date().toLocaleTimeString('en-IN');
 
-  // ── MY DONORS ──
-  html += `
-    <div class="my-records-banner">
-      <div class="banner-icon">❤️</div>
-      <div class="banner-text">
-        <h3>Donors Registered by ${state.role.label}</h3>
-        <p>${myDonors.length} record${myDonors.length !== 1 ? 's' : ''} found on the ledger</p>
+  // Recent matches
+  const rmEl = document.getElementById('recent-matches-list');
+  const recent = [...mList].sort((a,b) => new Date(b.matchedAt) - new Date(a.matchedAt)).slice(0,5);
+  rmEl.innerHTML = recent.length ? recent.map(m => `
+    <div style="display:flex;align-items:center;gap:0.75rem;padding:0.625rem 1.25rem;border-bottom:1px solid var(--border)">
+      <span style="font-size:1.1rem">${organIcon(m.organType)}</span>
+      <div style="flex:1">
+        <div style="font-size:0.82rem;font-weight:600">${m.organType} — Score ${m.matchScore?.toFixed(1)}</div>
+        <div style="font-size:0.72rem;color:var(--text-3)">${m.donorHospital} → ${m.recipientHospital}</div>
       </div>
-    </div>`;
+      ${getMatchBadge(m.status)}
+    </div>`).join('') : '<div class="empty-state"><div class="empty-icon">🔗</div><p>No matches yet</p></div>';
 
-  if (!myDonors.length) {
-    html += `<div class="empty-state"><div class="empty-icon">❤</div><p>No donors registered by your node yet</p></div>`;
-  } else {
-    html += `<div class="table-wrap"><table>
-      <thead><tr>
-        <th>Organ</th><th>Blood Type</th><th>Age</th><th>Location</th>
-        <th>Type</th><th>Status</th><th>Registered</th>
-      </tr></thead>
-      <tbody>
-        ${myDonors.map(d => `
-          <tr>
-            <td>${organIcon(d.organType)} ${d.organType}</td>
-            <td><span class="badge badge-blue">${d.bloodType.replace('_',' ')}</span></td>
-            <td>${d.age} yrs</td>
-            <td>${d.location}</td>
-            <td>${d.isDeceased ? '<span class="badge badge-amber">Deceased</span>' : '<span class="badge badge-gray">Living</span>'}</td>
-            <td>${getDonorStatusBadge(d.status)}</td>
-            <td class="text-sm">${fmtDate(d.registrationTime)}</td>
-          </tr>`).join('')}
-      </tbody>
-    </table></div>`;
-  }
-
-  html += `<div class="divider" style="margin:1.5rem 0"></div>`;
-
-  // ── MY RECIPIENTS ──
-  html += `
-    <div class="my-records-banner" style="background:linear-gradient(135deg,#eff6ff,#faf5ff);border-color:#bfdbfe">
-      <div class="banner-icon">👤</div>
-      <div class="banner-text">
-        <h3>Recipients Registered by ${state.role.label}</h3>
-        <p>${myRecipients.length} record${myRecipients.length !== 1 ? 's' : ''} found on the ledger</p>
+  // Recent transports
+  const rtEl = document.getElementById('recent-transport-list');
+  const recentT = [...tList].sort((a,b) => new Date(b.dispatchTime) - new Date(a.dispatchTime)).slice(0,5);
+  rtEl.innerHTML = recentT.length ? recentT.map(t => `
+    <div style="display:flex;align-items:center;gap:0.75rem;padding:0.625rem 1.25rem;border-bottom:1px solid var(--border)">
+      <span style="font-size:1.1rem">🚑</span>
+      <div style="flex:1">
+        <div style="font-size:0.82rem;font-weight:600">${t.organType} · ${t.viabilityWindowHours}h window</div>
+        <div style="font-size:0.72rem;color:var(--text-3)">${t.originHospital} → ${t.destinationHospital}</div>
       </div>
-    </div>`;
+      ${getTransportStatusBadge(t.status)}
+    </div>`).join('') : '<div class="empty-state"><div class="empty-icon">🚑</div><p>No transports yet</p></div>';
 
-  if (!myRecipients.length) {
-    html += `<div class="empty-state"><div class="empty-icon">👤</div><p>No recipients registered by your node yet</p></div>`;
-  } else {
-    html += `<div class="table-wrap"><table>
-      <thead><tr>
-        <th>Organ Needed</th><th>Blood Type</th><th>Age</th><th>Location</th>
-        <th>Condition</th><th>Paired</th><th>Status</th><th>Registered</th>
-      </tr></thead>
-      <tbody>
-        ${myRecipients.map(r => `
-          <tr>
-            <td>${organIcon(r.organNeeded)} ${r.organNeeded}</td>
-            <td><span class="badge badge-blue">${r.bloodType.replace('_',' ')}</span></td>
-            <td>${r.age} yrs</td>
-            <td>${r.location}</td>
-            <td>
-              <div style="display:flex;align-items:center;gap:6px">
-                <div style="width:44px;background:var(--border);border-radius:99px;height:6px;overflow:hidden">
-                  <div style="width:${r.conditionScore*10}%;height:100%;background:${r.conditionScore>=8?'var(--red)':r.conditionScore>=5?'var(--amber)':'var(--green)'}"></div>
-                </div>
-                <span class="mono">${r.conditionScore}/10</span>
-              </div>
-            </td>
-            <td>${r.hasPairedDonor ? '<span class="badge badge-purple">Paired</span>' : '—'}</td>
-            <td>${getRecipientStatusBadge(r.status)}</td>
-            <td class="text-sm">${fmtDate(r.registrationTime)}</td>
-          </tr>`).join('')}
-      </tbody>
-    </table></div>`;
+  // Pending match badge on nav
+  const pending = mList.filter(m => m.status === 'PENDING_CONFIRMATION').length;
+  state.pendingMatchCount = pending;
+  const navMatch = document.getElementById('nav-matching');
+  if (navMatch) {
+    const existing = navMatch.querySelector('.nav-badge');
+    if (existing) existing.remove();
+    if (pending > 0) navMatch.insertAdjacentHTML('beforeend', `<span class="nav-badge">${pending}</span>`);
   }
-
-  el.innerHTML = html;
 }
 
 // ══════════════════════════════════════════════════════════════
 // DONORS
+// Medical fields are ENCRYPTED — display as "🔒 Encrypted" pill
 // ══════════════════════════════════════════════════════════════
 async function loadDonors() {
-  setTableLoading('donor-tbody', 10);
   const res = await api('GET', '/api/donor/list');
-  if (!res.ok || !res.data?.data) {
-    renderDonorRows([]);
-    showToast('error', 'Failed to load donors', res.error || 'Network error');
-    return;
-  }
-  state.donors = res.data.data;
-  document.getElementById('donor-count').textContent = state.donors.length;
-  renderDonorRows(state.donors);
-  populateDonorSelect();
-  const btn = document.getElementById('btn-register-donor');
-  if (btn) btn.style.display = state.role.permissions.has('register_donor') ? '' : 'none';
+  state.donors = res.ok ? res.data?.data || [] : [];
+  document.getElementById('donors-count').textContent = state.donors.length;
+  renderDonors();
 }
 
-function renderDonorRows(donors) {
-  const tbody = document.getElementById('donor-tbody');
-  if (!donors.length) {
-    tbody.innerHTML = `<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">❤</div><p>No donors found</p></div></td></tr>`;
+function renderDonors() {
+  const filter = document.getElementById('donor-filter-status')?.value || '';
+  const list   = filter ? state.donors.filter(d => d.status === filter) : state.donors;
+  const isMA   = state.role?.id === 'matching_authority';
+  const tbody  = document.getElementById('donors-tbody');
+
+  if (!list.length) {
+    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><div class="empty-icon">❤</div><p>No donors found</p></div></td></tr>`;
     return;
   }
-  tbody.innerHTML = donors.map(d => `
+
+  tbody.innerHTML = list.map(d => `
     <tr>
-      <td class="id-cell" title="${d.linearId}">${shortId(d.linearId)}</td>
-      <td>${organIcon(d.organType)} ${d.organType}</td>
-      <td><span class="badge badge-blue">${d.bloodType.replace('_',' ')}</span></td>
-      <td>${d.age} yrs</td>
-      <td>${d.location}</td>
-      <td>${d.isDeceased ? '<span class="badge badge-amber">Deceased</span>' : '<span class="badge badge-gray">Living</span>'}</td>
+      <td><span class="audit-id">${shortId(d.linearId)}</span></td>
       <td>${getDonorStatusBadge(d.status)}</td>
-      <td class="text-sm">${d.registeredBy}</td>
-      <td class="text-sm">${fmtDate(d.registrationTime)}</td>
-      <td>${d.status === 'AVAILABLE' && state.role.permissions.has('trigger_match')
-        ? `<button class="btn btn-sm btn-amber" onclick="quickTrigger('${d.linearId}')">⚡ Match</button>` : '—'}</td>
+      <td><span class="encrypted-cell">🔒 encrypted</span></td>
+      <td><span class="encrypted-cell">🔒 encrypted</span></td>
+      <td><span class="encrypted-cell">🔒 encrypted</span></td>
+      <td style="font-size:0.8rem">${d.registeredBy}</td>
+      <td style="font-size:0.75rem;color:var(--text-3)">${fmtDate(d.registrationTime)}</td>
+      <td style="${isMA ? '' : 'display:none'}">${
+        isMA && d.status === 'AVAILABLE'
+          ? `<button class="btn btn-indigo btn-sm" onclick="triggerMatch('${d.linearId}')">🔐 Run Matching</button>`
+          : '—'
+      }</td>
     </tr>`).join('');
 }
-
-function filterDonors() {
-  const q = document.getElementById('donor-search').value.toLowerCase();
-  const status = document.getElementById('donor-status-filter').value;
-  const organ  = document.getElementById('donor-organ-filter').value;
-  renderDonorRows(state.donors.filter(d =>
-    (!q || d.linearId.toLowerCase().includes(q) || d.location.toLowerCase().includes(q)) &&
-    (!status || d.status === status) && (!organ || d.organType === organ)
-  ));
-}
-
-async function registerDonor() {
-  const payload = {
-    name: document.getElementById('d-name').value.trim(),
-    contact: document.getElementById('d-contact').value.trim(),
-    bloodType: document.getElementById('d-blood').value,
-    organType: document.getElementById('d-organ').value,
-    age: parseInt(document.getElementById('d-age').value),
-    weightKg: parseFloat(document.getElementById('d-weight').value),
-    heightCm: parseFloat(document.getElementById('d-height').value),
-    location: document.getElementById('d-location').value.trim(),
-    isDeceased: document.getElementById('d-deceased').checked,
-  };
-  if (!payload.name || !payload.bloodType || !payload.organType || !payload.location || isNaN(payload.age)) {
-    showToast('warning', 'Validation', 'Please fill all required fields');
-    return;
-  }
-  const res = await api('POST', '/api/donor/register', payload);
-  if (res.ok && res.data?.success) {
-    showToast('success', 'Donor Registered', `${payload.organType} donor added to ledger`);
-    addNotif('New Donor', `${payload.organType} donor registered from ${payload.location}`, 'success');
-    closeModal('donor-modal');
-    loadDonors();
-  } else {
-    showToast('error', 'Registration Failed', res.data?.message || 'Please check the server logs');
-  }
-}
-
-function openDonorModal() { document.getElementById('donor-modal').classList.add('open'); }
 
 // ══════════════════════════════════════════════════════════════
 // RECIPIENTS
 // ══════════════════════════════════════════════════════════════
 async function loadRecipients() {
-  setTableLoading('recipient-tbody', 11);
   const res = await api('GET', '/api/recipient/list');
-  if (!res.ok || !res.data?.data) {
-    renderRecipientRows([]);
-    showToast('error', 'Failed to load recipients', res.error || 'Network error');
-    return;
-  }
-  state.recipients = res.data.data;
-  document.getElementById('recipient-count').textContent = state.recipients.length;
-  renderRecipientRows(state.recipients);
-  const btn = document.getElementById('btn-register-recipient');
-  if (btn) btn.style.display = state.role.permissions.has('register_recipient') ? '' : 'none';
+  state.recipients = res.ok ? res.data?.data || [] : [];
+  document.getElementById('recipients-count').textContent = state.recipients.length;
+  renderRecipients();
 }
 
-function renderRecipientRows(recipients) {
-  const tbody = document.getElementById('recipient-tbody');
-  if (!recipients.length) {
-    tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state"><div class="empty-icon">👤</div><p>No recipients found</p></div></td></tr>`;
+function renderRecipients() {
+  const filter = document.getElementById('recipient-filter-status')?.value || '';
+  const list   = filter ? state.recipients.filter(r => r.status === filter) : state.recipients;
+  const tbody  = document.getElementById('recipients-tbody');
+
+  if (!list.length) {
+    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><div class="empty-icon">👤</div><p>No recipients found</p></div></td></tr>`;
     return;
   }
-  tbody.innerHTML = recipients.map(r => `
+
+  tbody.innerHTML = list.map(r => `
     <tr>
-      <td class="id-cell" title="${r.linearId}">${shortId(r.linearId)}</td>
-      <td>${organIcon(r.organNeeded)} ${r.organNeeded}</td>
-      <td><span class="badge badge-blue">${r.bloodType.replace('_',' ')}</span></td>
-      <td>${r.age} yrs</td>
-      <td>${r.location}</td>
-      <td>
-        <div style="display:flex;align-items:center;gap:6px">
-          <div style="width:44px;background:var(--border);border-radius:99px;height:6px;overflow:hidden">
-            <div style="width:${r.conditionScore*10}%;height:100%;background:${r.conditionScore>=8?'var(--red)':r.conditionScore>=5?'var(--amber)':'var(--green)'}"></div>
-          </div>
-          <span class="mono">${r.conditionScore}/10</span>
-        </div>
-      </td>
-      <td class="mono">#${r.serialNumber}</td>
-      <td>${r.hasPairedDonor ? '<span class="badge badge-purple">Paired</span>' : '—'}</td>
+      <td><span class="audit-id">${shortId(r.linearId)}</span></td>
       <td>${getRecipientStatusBadge(r.status)}</td>
-      <td class="text-sm">${r.registeredBy}</td>
-      <td>—</td>
+      <td><span class="encrypted-cell">🔒 encrypted</span></td>
+      <td><span class="encrypted-cell">🔒 encrypted</span></td>
+      <td><span class="encrypted-cell">🔒 encrypted</span></td>
+      <td><span class="encrypted-cell">🔒 encrypted</span></td>
+      <td style="font-size:0.8rem">${r.registeredBy}</td>
+      <td style="font-size:0.75rem;color:var(--text-3)">${fmtDate(r.registrationTime)}</td>
     </tr>`).join('');
 }
-
-function filterRecipients() {
-  const q = document.getElementById('recipient-search').value.toLowerCase();
-  const status = document.getElementById('recipient-status-filter').value;
-  const organ  = document.getElementById('recipient-organ-filter').value;
-  renderRecipientRows(state.recipients.filter(r =>
-    (!q || r.linearId.toLowerCase().includes(q) || r.location.toLowerCase().includes(q)) &&
-    (!status || r.status === status) && (!organ || r.organNeeded === organ)
-  ));
-}
-
-async function registerRecipient() {
-  const payload = {
-    name: document.getElementById('r-name').value.trim(),
-    contact: document.getElementById('r-contact').value.trim(),
-    bloodType: document.getElementById('r-blood').value,
-    organNeeded: document.getElementById('r-organ').value,
-    age: parseInt(document.getElementById('r-age').value),
-    weightKg: parseFloat(document.getElementById('r-weight').value),
-    heightCm: parseFloat(document.getElementById('r-height').value),
-    location: document.getElementById('r-location').value.trim(),
-    conditionScore: parseInt(document.getElementById('r-condition').value),
-    serialNumber: parseInt(document.getElementById('r-serial').value),
-    hasPairedDonor: document.getElementById('r-paired').checked,
-  };
-  if (!payload.name || !payload.bloodType || !payload.organNeeded || !payload.location) {
-    showToast('warning', 'Validation', 'Please fill all required fields');
-    return;
-  }
-  const res = await api('POST', '/api/recipient/register', payload);
-  if (res.ok && res.data?.success) {
-    showToast('success', 'Recipient Registered', `${payload.organNeeded} recipient added to waitlist`);
-    addNotif('New Recipient', `Patient waiting for ${payload.organNeeded} in ${payload.location}`, 'info');
-    closeModal('recipient-modal');
-    loadRecipients();
-  } else {
-    showToast('error', 'Registration Failed', res.data?.message || 'Please check the server logs');
-  }
-}
-
-function openRecipientModal() { document.getElementById('recipient-modal').classList.add('open'); }
 
 // ══════════════════════════════════════════════════════════════
 // MATCHING
 // ══════════════════════════════════════════════════════════════
-async function loadMatching() {
-  setTableLoading('match-tbody', 10);
-  const triggerPanel = document.getElementById('trigger-match-panel');
-  const actionCol    = document.getElementById('match-action-col');
-  if (state.role.permissions.has('trigger_match')) {
-    triggerPanel.style.display = '';
-    await loadDonors();
-    populateDonorSelect();
-  } else {
-    triggerPanel.style.display = 'none';
-  }
-  if (state.role.permissions.has('confirm_match') || state.role.permissions.has('reject_match')) {
-    if (actionCol) actionCol.style.display = '';
-  }
-  await loadMatches();
-}
-
 async function loadMatches() {
   const res = await api('GET', '/api/match/list');
-  if (!res.ok || !res.data?.data) {
-    document.getElementById('match-tbody').innerHTML =
-      `<tr><td colspan="10"><div class="empty-state"><p>Could not load matches</p></div></td></tr>`;
-    return;
-  }
-  state.matches = res.data.data;
-  document.getElementById('match-count').textContent = state.matches.length;
-  filterMatches();
-  const pending = state.matches.filter(m => m.status === 'PENDING_CONFIRMATION').length;
-  const badge = document.getElementById('nav-badge-matching');
-  if (badge) { badge.textContent = pending; badge.style.display = pending > 0 ? 'flex' : 'none'; }
+  state.matches = res.ok ? res.data?.data || [] : [];
+  document.getElementById('matching-count').textContent = state.matches.length;
+  renderMatches();
 }
 
-function filterMatches() {
-  const status = document.getElementById('match-status-filter').value;
-  renderMatchRows(status ? state.matches.filter(m => m.status === status) : state.matches);
-}
+function renderMatches() {
+  const filter = document.getElementById('match-filter-status')?.value || '';
+  const list   = filter ? state.matches.filter(m => m.status === filter) : state.matches;
+  const canConfirm = state.role?.permissions.has('confirm_match');
+  const canReject  = state.role?.permissions.has('reject_match');
+  const canSummary = state.role?.permissions.has('view_summary');
+  const tbody  = document.getElementById('matches-tbody');
 
-function renderMatchRows(matches) {
-  const tbody = document.getElementById('match-tbody');
-  if (!matches.length) {
-    tbody.innerHTML = `<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">🔗</div><p>No matches found</p></div></td></tr>`;
+  if (!list.length) {
+    tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">🔗</div><p>No matches found</p></div></td></tr>`;
     return;
   }
-  const canAct = state.role.permissions.has('confirm_match') || state.role.permissions.has('reject_match');
-  tbody.innerHTML = matches.map(m => `
+
+  tbody.innerHTML = list.map(m => {
+    let actions = '';
+    if (m.status === 'PENDING_CONFIRMATION') {
+      if (canConfirm) actions += `<button class="btn btn-primary btn-sm" onclick="confirmMatch('${m.linearId}')">✓ Confirm</button> `;
+      if (canReject)  actions += `<button class="btn btn-danger btn-sm" onclick="openRejectModal('${m.linearId}')">✕ Reject</button> `;
+    }
+    if (m.status === 'CONFIRMED' && canSummary) {
+      actions += `<button class="btn btn-indigo btn-sm" onclick="fetchMatchSummary('${m.linearId}')">🔓 Summary</button>`;
+    }
+    if (!actions) actions = `<button class="btn btn-ghost btn-sm" onclick="showScoreModal(${JSON.stringify(m).replace(/"/g,'&quot;')})">Score ▸</button>`;
+    return `
     <tr>
-      <td class="id-cell" title="${m.linearId}">${shortId(m.linearId)}</td>
+      <td><span class="audit-id">${shortId(m.linearId)}</span></td>
       <td>${organIcon(m.organType)} ${m.organType}</td>
-      <td>
-        <span class="mono">${m.matchScore.toFixed(1)}</span>
-        <button class="btn btn-sm btn-ghost" style="margin-left:4px;padding:1px 4px" onclick="showScoreBreakdown(${m.matchScore},'${m.organType}')">📊</button>
-      </td>
-      <td><span class="badge ${m.crossMatchResult === 'POSITIVE' ? 'badge-teal' : 'badge-red'}">${m.crossMatchResult}</span></td>
-      <td class="text-sm">${m.donorHospital}</td>
-      <td class="text-sm">${m.recipientHospital}</td>
+      <td><strong>${m.matchScore?.toFixed(1)}</strong></td>
+      <td><span class="badge badge-green">${m.crossMatchResult}</span></td>
+      <td style="font-size:0.8rem">${m.donorHospital}</td>
+      <td style="font-size:0.8rem">${m.recipientHospital}</td>
       <td>${getMatchBadge(m.status)}</td>
-      <td class="text-sm">${fmtDate(m.matchedAt)}</td>
-      <td class="text-sm" style="max-width:140px;overflow:hidden;text-overflow:ellipsis">${m.rejectionReason || '—'}</td>
-      <td>${canAct && m.status === 'PENDING_CONFIRMATION' ? `
-        <div class="flex gap-2">
-          ${state.role.permissions.has('confirm_match') ? `<button class="btn btn-sm btn-primary" onclick="confirmMatch('${m.linearId}')">✓ Confirm</button>` : ''}
-          ${state.role.permissions.has('reject_match')  ? `<button class="btn btn-sm btn-danger"  onclick="openRejectModal('${m.linearId}')">✗ Reject</button>`  : ''}
-        </div>` : '—'}</td>
-    </tr>`).join('');
+      <td style="font-size:0.72rem;color:var(--text-3)">${fmtDate(m.matchedAt)}</td>
+      <td style="display:flex;gap:4px;flex-wrap:wrap">${actions}</td>
+    </tr>`;
+  }).join('');
 }
 
-function populateDonorSelect() {
-  const sel = document.getElementById('trigger-donor-select');
-  if (!sel) return;
-  const avail = state.donors.filter(d => d.status === 'AVAILABLE');
-  sel.innerHTML = '<option value="">— Select Available Donor —</option>' +
-    avail.map(d => `<option value="${d.linearId}">${organIcon(d.organType)} ${d.organType} · ${d.bloodType.replace('_',' ')} · ${d.location}</option>`).join('');
-}
+// ══════════════════════════════════════════════════════════════
+// REGISTER DONOR  (sends all fields — backend encrypts all)
+// ══════════════════════════════════════════════════════════════
+async function registerDonor() {
+  const body = {
+    name:       document.getElementById('d-name').value.trim(),
+    contact:    document.getElementById('d-contact').value.trim(),
+    bloodType:  document.getElementById('d-blood').value,
+    organType:  document.getElementById('d-organ').value,
+    age:        parseInt(document.getElementById('d-age').value),
+    weightKg:   parseFloat(document.getElementById('d-weight').value),
+    heightCm:   parseFloat(document.getElementById('d-height').value),
+    isDeceased: document.getElementById('d-deceased').checked,
+    location:   document.getElementById('d-location').value.trim(),
+  };
 
-async function triggerMatching() {
-  const donorId = document.getElementById('trigger-donor-select').value;
-  if (!donorId) { showToast('warning', 'Select a donor', ''); return; }
-  const res = await api('POST', `/api/match/trigger/${encodeURIComponent(donorId)}`);
-  if (res.ok && res.data?.success) {
-    showToast('success', 'Match Found', 'Algorithm successfully found a compatible recipient');
-    addNotif('Match Found', 'Organ matching algorithm completed', 'success');
-    loadMatches();
+  if (!body.name || !body.contact || !body.bloodType || !body.organType || !body.location) {
+    showToast('warning','Missing Fields','Please fill all required fields'); return;
+  }
+
+  const res = await api('POST', '/api/donor/register', body);
+  if (res.ok) {
+    closeModal('donor-modal');
+    showToast('success','Donor Registered','All fields AES-256-GCM encrypted and written to Corda ledger');
+    addNotif('Donor Registered', `${body.organType} donor — all fields encrypted`, 'success');
+    loadDonors();
   } else {
-    showToast('error', 'No Match Found', res.data?.message || 'No compatible recipient found');
+    showToast('error','Registration Failed', res.data?.message || res.error);
   }
 }
 
-async function quickTrigger(donorId) {
-  navigate('matching');
-  setTimeout(() => {
-    const sel = document.getElementById('trigger-donor-select');
-    if (sel) sel.value = donorId;
-  }, 300);
-}
+// ══════════════════════════════════════════════════════════════
+// REGISTER RECIPIENT
+// ══════════════════════════════════════════════════════════════
+async function registerRecipient() {
+  const body = {
+    name:           document.getElementById('r-name').value.trim(),
+    contact:        document.getElementById('r-contact').value.trim(),
+    bloodType:      document.getElementById('r-blood').value,
+    organNeeded:    document.getElementById('r-organ').value,
+    age:            parseInt(document.getElementById('r-age').value),
+    weightKg:       parseFloat(document.getElementById('r-weight').value),
+    heightCm:       parseFloat(document.getElementById('r-height').value),
+    conditionScore: parseInt(document.getElementById('r-condition').value),
+    serialNumber:   parseInt(document.getElementById('r-serial').value),
+    hasPairedDonor: document.getElementById('r-paired').checked,
+    location:       document.getElementById('r-location').value.trim(),
+  };
 
-async function confirmMatch(matchId) {
-  const res = await api('POST', `/api/match/confirm/${encodeURIComponent(matchId)}`);
-  if (res.ok && res.data?.success) {
-    showToast('success', 'Match Confirmed', 'Transport can now be dispatched');
-    addNotif('Match Confirmed', `Match ${shortId(matchId)} confirmed`, 'success');
-    loadMatches();
+  if (!body.name || !body.contact || !body.bloodType || !body.organNeeded || !body.location) {
+    showToast('warning','Missing Fields','Please fill all required fields'); return;
+  }
+
+  const res = await api('POST', '/api/recipient/register', body);
+  if (res.ok) {
+    closeModal('recipient-modal');
+    showToast('success','Patient Registered','All fields AES-256-GCM encrypted and written to Corda ledger');
+    addNotif('Recipient Registered', `${body.organNeeded} patient — all fields encrypted`, 'success');
+    loadRecipients();
   } else {
-    showToast('error', 'Failed', res.data?.message || 'Error confirming match');
+    showToast('error','Registration Failed', res.data?.message || res.error);
   }
 }
 
-function openRejectModal(matchId) {
-  document.getElementById('reject-match-id').value = matchId;
+// ══════════════════════════════════════════════════════════════
+// TRIGGER MATCH (MatchingAuthority only)
+// Calls POST /api/match/trigger/{donorLinearId} on MA's Spring Boot server.
+// The MA decrypts all donor + recipient fields, runs Algorithm 1, creates MatchState.
+// ══════════════════════════════════════════════════════════════
+async function triggerMatch(donorLinearId) {
+  showToast('info','Running Algorithm','MatchingAuthority decrypting fields and running Algorithm 1…');
+  const res = await api('POST', `/api/match/trigger/${donorLinearId}`);
+  if (res.ok) {
+    if (res.data?.data) {
+      showToast('success','Match Found!', `Score: ${res.data.data.matchScore?.toFixed(1)} · ${res.data.data.organType}`);
+      addNotif('Match Found', `Organ: ${res.data.data.organType} · Score: ${res.data.data.matchScore?.toFixed(1)}`, 'success');
+    } else {
+      showToast('info','No Match','No compatible recipient found for this donor at this time');
+    }
+    loadDonors(); loadMatches();
+  } else {
+    showToast('error','Matching Failed', res.data?.message || res.error);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// CONFIRM / REJECT MATCH
+// ══════════════════════════════════════════════════════════════
+async function confirmMatch(matchLinearId) {
+  showToast('info','Confirming…','Running ConfirmMatchFlow + dispatching decrypted summary to hospitals');
+  const res = await api('POST', `/api/match/confirm/${matchLinearId}`);
+  if (res.ok) {
+    showToast('success','Match Confirmed','Decrypted match summary sent to both hospitals over TLS-secured P2P');
+    addNotif('Match Confirmed', `ID: ${shortId(matchLinearId)}`, 'success');
+    loadMatches();
+  } else {
+    showToast('error','Confirmation Failed', res.data?.message || res.error);
+  }
+}
+
+function openRejectModal(matchLinearId) {
+  document.getElementById('reject-match-id').value = matchLinearId;
   document.getElementById('reject-reason').value = '';
-  document.getElementById('reject-modal').classList.add('open');
+  openModal('reject-modal');
 }
 
 async function confirmReject() {
-  const matchId = document.getElementById('reject-match-id').value;
-  const reason  = document.getElementById('reject-reason').value.trim();
-  if (!reason) { showToast('warning', 'Reason required', 'Please provide a rejection reason'); return; }
-  const res = await api('POST', `/api/match/reject/${encodeURIComponent(matchId)}`, { reason });
-  if (res.ok && res.data?.success) {
-    showToast('info', 'Match Rejected', reason);
+  const id     = document.getElementById('reject-match-id').value;
+  const reason = document.getElementById('reject-reason').value.trim();
+  if (!reason) { showToast('warning','Required','Please enter a rejection reason'); return; }
+
+  const res = await api('POST', `/api/match/reject/${id}`, { reason });
+  if (res.ok) {
     closeModal('reject-modal');
+    showToast('success','Match Rejected', reason);
     loadMatches();
   } else {
-    showToast('error', 'Failed', res.data?.message || 'Error rejecting match');
+    showToast('error','Rejection Failed', res.data?.message || res.error);
   }
 }
 
-function showScoreBreakdown(score, organType) {
-  const max = 110;
+// ══════════════════════════════════════════════════════════════
+// FETCH DECRYPTED MATCH SUMMARY (MatchingAuthority only)
+// Calls GET /api/match/summary/{matchLinearId}
+// MA decrypts both parties' details and returns MatchSummaryResponse.
+// ══════════════════════════════════════════════════════════════
+async function fetchMatchSummary(matchLinearId) {
+  const el = document.getElementById('summary-modal-content');
+  el.innerHTML = '<div class="loading-row"><span class="spinner"></span> Decrypting via MatchingAuthority…</div>';
+  openModal('summary-modal');
+
+  const res = await api('GET', `/api/match/summary/${matchLinearId}`);
+  if (!res.ok) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">🔒</div><p>Decryption failed: ${res.data?.message || res.error}</p></div>`;
+    return;
+  }
+
+  const s = res.data.data;
+  el.innerHTML = `
+    <div class="summary-panel">
+      <div class="summary-panel-header">
+        <span class="summary-lock">🔓</span>
+        Decrypted Match Summary — ${s.matchLinearId?.slice(0,18)}…
+      </div>
+      <div class="summary-panel-body">
+        <div class="summary-col">
+          <div class="summary-col-label">🩸 Donor Details</div>
+          <div class="summary-field"><div class="summary-field-label">Name</div><div class="summary-field-value">${s.donorName}</div></div>
+          <div class="summary-field"><div class="summary-field-label">Contact</div><div class="summary-field-value">${s.donorContact}</div></div>
+          <div class="summary-field"><div class="summary-field-label">Blood Type</div><div class="summary-field-value">${s.donorBloodType?.replace('_',' ')}</div></div>
+          <div class="summary-field"><div class="summary-field-label">Organ</div><div class="summary-field-value">${organIcon(s.donorOrganType)} ${s.donorOrganType}</div></div>
+          <div class="summary-field"><div class="summary-field-label">Location</div><div class="summary-field-value">${s.donorLocation}</div></div>
+          <div class="summary-field"><div class="summary-field-label">Deceased</div><div class="summary-field-value">${s.donorIsDeceased ? 'Yes' : 'No'}</div></div>
+        </div>
+        <div class="summary-col">
+          <div class="summary-col-label">👤 Recipient Details</div>
+          <div class="summary-field"><div class="summary-field-label">Name</div><div class="summary-field-value">${s.recipientName}</div></div>
+          <div class="summary-field"><div class="summary-field-label">Contact</div><div class="summary-field-value">${s.recipientContact}</div></div>
+          <div class="summary-field"><div class="summary-field-label">Blood Type</div><div class="summary-field-value">${s.recipientBloodType?.replace('_',' ')}</div></div>
+          <div class="summary-field"><div class="summary-field-label">Organ Needed</div><div class="summary-field-value">${organIcon(s.recipientOrganType)} ${s.recipientOrganType}</div></div>
+          <div class="summary-field"><div class="summary-field-label">Location</div><div class="summary-field-value">${s.recipientLocation}</div></div>
+          <div class="summary-field"><div class="summary-field-label">Condition Score</div><div class="summary-field-value">${s.recipientCondition} / 10</div></div>
+        </div>
+      </div>
+      <div class="summary-score">
+        <span>Algorithm 1 Match Score:</span>
+        <strong>${s.matchScore?.toFixed(2)}</strong>
+        <span style="margin-left:auto;font-size:0.7rem;opacity:0.7">Decrypted by MatchingAuthority · transmitted over Corda TLS P2P</span>
+      </div>
+    </div>`;
+}
+
+// ══════════════════════════════════════════════════════════════
+// SCORE MODAL
+// ══════════════════════════════════════════════════════════════
+function showScoreModal(m) {
+  const maxScore = 110;
   document.getElementById('score-modal-content').innerHTML = `
-    <div class="mb-3">
-      <div class="stat-label">Total Match Score</div>
-      <div style="font-family:var(--font-head);font-size:2rem;font-weight:800;color:var(--teal)">${score.toFixed(1)}</div>
-      <div class="text-sm">${organIcon(organType)} ${organType} · out of ~110 pts maximum</div>
+    <div style="margin-bottom:0.75rem">
+      <div style="font-size:0.78rem;color:var(--text-3);margin-bottom:0.25rem">Match ID</div>
+      <div style="font-family:var(--font-mono);font-size:0.75rem">${m.linearId}</div>
     </div>
-    <div class="score-breakdown" style="margin-top:1rem">
-      <div class="score-row"><span class="score-row-label">Location Match</span><div class="score-bar-bg"><div class="score-bar-fill" style="width:${15/max*100}%"></div></div><span class="score-row-val">max 15</span></div>
-      <div class="score-row"><span class="score-row-label">Paired Donor (KPE)</span><div class="score-bar-bg"><div class="score-bar-fill" style="width:${20/max*100}%"></div></div><span class="score-row-val">max 20</span></div>
-      <div class="score-row"><span class="score-row-label">Size compatibility</span><div class="score-bar-bg"><div class="score-bar-fill" style="width:${15/max*100}%"></div></div><span class="score-row-val">max 15</span></div>
-      <div class="score-row"><span class="score-row-label">Age compatibility</span><div class="score-bar-bg"><div class="score-bar-fill" style="width:${10/max*100}%"></div></div><span class="score-row-val">max 10</span></div>
-      <div class="score-row"><span class="score-row-label">Urgency (cond×5)</span><div class="score-bar-bg"><div class="score-bar-fill" style="width:${50/max*100}%;background:var(--amber)"></div></div><span class="score-row-val">max 50</span></div>
+    <div class="score-breakdown">
+      ${scoreRow('Total Score',m.matchScore,maxScore)}
     </div>
     <div class="divider"></div>
-    <p class="form-hint">Hard gates applied: blood-type compatibility (pre-filter) and cross-match test (post-score). Notary prevents double assignment.</p>`;
-  document.getElementById('score-modal').classList.add('open');
+    <div style="font-size:0.75rem;color:var(--text-3);line-height:1.6">
+      <strong>Scoring criteria:</strong><br/>
+      Location match (deceased): +15 · Paired donor (KPE): +20<br/>
+      BMI compatibility: +15 · Age compatibility: +10<br/>
+      Condition score × 5: up to +50 · Serial tie-break: −0.001×serial
+    </div>`;
+  openModal('score-modal');
+}
+
+function scoreRow(label, val, max) {
+  const pct = Math.min(100, Math.round((val / max) * 100));
+  return `<div class="score-row">
+    <span class="score-row-label">${label}</span>
+    <div class="score-bar-bg"><div class="score-bar-fill" style="width:${pct}%"></div></div>
+    <span class="score-row-val">${val?.toFixed ? val.toFixed(1) : val}</span>
+  </div>`;
 }
 
 // ══════════════════════════════════════════════════════════════
 // TRANSPORT
 // ══════════════════════════════════════════════════════════════
 async function loadTransport() {
-  document.getElementById('transport-cards').innerHTML =
-    '<div class="loading-row"><span class="spinner"></span> Loading transports…</div>';
-  document.getElementById('transport-empty').style.display = 'none';
-
-  const dispPanel = document.getElementById('dispatch-panel');
-  dispPanel.style.display = state.role.permissions.has('dispatch_transport') ? '' : 'none';
-  if (state.role.permissions.has('dispatch_transport')) await loadConfirmedMatches();
-
   const res = await api('GET', '/api/transport/list');
-  if (!res.ok || !res.data?.data) {
-    document.getElementById('transport-cards').innerHTML = '';
-    document.getElementById('transport-empty').style.display = '';
-    showToast('error', 'Failed', 'Could not load transports');
+  state.transports = res.ok ? res.data?.data || [] : [];
+  document.getElementById('transport-count').textContent = state.transports.length;
+
+  const canDispatch = state.role?.permissions.has('dispatch_transport');
+  const canUpdate   = state.role?.permissions.has('update_transport');
+  const tbody = document.getElementById('transport-tbody');
+
+  if (!state.transports.length) {
+    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><div class="empty-icon">🚑</div><p>No transports</p></div></td></tr>`;
     return;
   }
-  state.transports = res.data.data;
-  document.getElementById('transport-count').textContent = state.transports.length;
-  renderTransportCards(state.transports);
-}
 
-async function loadConfirmedMatches() {
-  const res = await api('GET', '/api/match/list');
-  const sel = document.getElementById('dispatch-match-select');
-  if (!res.ok || !res.data?.data) { sel.innerHTML = '<option>No confirmed matches</option>'; return; }
-  const confirmed = res.data.data.filter(m => m.status === 'CONFIRMED');
-  sel.innerHTML = '<option value="">— Select Confirmed Match —</option>' +
-    confirmed.map(m => `<option value="${m.linearId}">${organIcon(m.organType)} ${m.organType} · ${m.donorHospital} → ${m.recipientHospital}</option>`).join('');
-}
-
-function renderTransportCards(transports) {
-  const container = document.getElementById('transport-cards');
-  const empty = document.getElementById('transport-empty');
-  state.timerIntervals.forEach(clearInterval);
-  state.timerIntervals = [];
-
-  if (!transports.length) { container.innerHTML = ''; empty.style.display = ''; return; }
-  empty.style.display = 'none';
-
-  container.innerHTML = transports.map(t => {
-    const wh = VIABILITY[t.organType] || 24;
-    const progress = { DISPATCHED:20, IN_TRANSIT:60, DELIVERED:100, FAILED:50 }[t.status] || 0;
-    const tid = `ttimer-${t.linearId.replace(/[^a-z0-9]/gi,'_')}`;
+  tbody.innerHTML = state.transports.map(t => {
+    let actions = '';
+    if (canDispatch && t.status === 'DISPATCHED') actions += `<button class="btn btn-amber btn-sm" onclick="openTransportUpdate('${t.linearId}')">Update</button>`;
+    if (canUpdate) actions += `<button class="btn btn-ghost btn-sm" onclick="openTransportUpdate('${t.linearId}')">Update</button>`;
+    if (!actions) actions = '—';
     return `
-      <div class="card" style="position:relative">
-        <div style="position:absolute;top:12px;right:12px">${getTransportStatusBadge(t.status)}</div>
-        <div style="font-size:1.5rem;margin-bottom:0.5rem">${organIcon(t.organType)}</div>
-        <div style="font-family:var(--font-head);font-weight:700;font-size:1rem;margin-bottom:0.2rem;color:var(--text)">${t.organType}</div>
-        <div class="text-sm mb-3">${wh}h viability window</div>
-        <div class="transport-track">
-          <div class="track-node"><div class="track-dot filled"></div><span class="track-label">${t.originHospital}</span></div>
-          <div class="track-line"><div class="track-line-fill" style="width:${progress}%"></div></div>
-          <div class="track-node"><div class="track-dot ${progress===100?'filled':''}"></div><span class="track-label">${t.destinationHospital}</span></div>
-        </div>
-        <div class="flex items-center gap-2 mt-3">
-          <span class="text-sm">Viability remaining:</span>
-          <span class="viability-timer ml-auto" id="${tid}">—</span>
-        </div>
-        <div class="text-sm mt-2">Dispatched: ${fmtDate(t.dispatchTime)}</div>
-        ${t.deliveredAt ? `<div class="text-sm">Delivered: ${fmtDate(t.deliveredAt)}</div>` : ''}
-        ${state.role.permissions.has('update_transport') && ['DISPATCHED','IN_TRANSIT'].includes(t.status) ? `
-          <div class="divider"></div>
-          <button class="btn btn-sm btn-secondary" onclick="openTransportUpdate('${t.linearId}')">Update Status</button>` : ''}
-      </div>`;
+    <tr>
+      <td><span class="audit-id">${shortId(t.linearId)}</span></td>
+      <td>${organIcon(t.organType)} ${t.organType}</td>
+      <td style="font-size:0.8rem">${t.originHospital}</td>
+      <td style="font-size:0.8rem">${t.destinationHospital}</td>
+      <td><span class="viability-timer timer-${t.viabilityWindowHours <= 6 ? 'critical' : t.viabilityWindowHours <= 12 ? 'warning' : 'ok'}">${t.viabilityWindowHours}h</span></td>
+      <td>${getTransportStatusBadge(t.status)}</td>
+      <td style="font-size:0.72rem;color:var(--text-3)">${fmtDate(t.dispatchTime)}</td>
+      <td>${actions}</td>
+    </tr>`;
   }).join('');
-
-  transports.forEach(t => {
-    if (!['DISPATCHED','IN_TRANSIT'].includes(t.status)) return;
-    const wh = VIABILITY[t.organType] || 24;
-    const expiry = new Date(t.dispatchTime).getTime() + wh * 3600000;
-    const id = `ttimer-${t.linearId.replace(/[^a-z0-9]/gi,'_')}`;
-    const iv = setInterval(() => {
-      const el = document.getElementById(id);
-      if (!el) { clearInterval(iv); return; }
-      const rem = expiry - Date.now();
-      if (rem <= 0) { el.textContent = 'EXPIRED'; el.className = 'viability-timer timer-critical'; return; }
-      const h = Math.floor(rem/3600000), m = Math.floor((rem%3600000)/60000), s = Math.floor((rem%60000)/1000);
-      el.textContent = `${h}h ${m}m ${s}s`;
-      el.className = 'viability-timer ' + (h<1?'timer-critical':h<4?'timer-warning':'timer-ok');
-    }, 1000);
-    state.timerIntervals.push(iv);
-  });
 }
 
-async function dispatchTransport() {
-  const matchId = document.getElementById('dispatch-match-select').value;
-  if (!matchId) { showToast('warning', 'Select a match', ''); return; }
-  const res = await api('POST', `/api/transport/dispatch/${encodeURIComponent(matchId)}`);
-  if (res.ok && res.data?.success) {
-    showToast('success', 'Transport Dispatched', 'Organ is on the way');
-    addNotif('Transport Dispatched', 'Organ transport initiated', 'info');
-    loadTransport();
-  } else {
-    showToast('error', 'Dispatch Failed', res.data?.message || 'Error');
-  }
-}
-
-function openTransportUpdate(transportId) {
-  document.getElementById('update-transport-id').value = transportId;
-  document.getElementById('transport-update-modal').classList.add('open');
+function openTransportUpdate(id) {
+  document.getElementById('update-transport-id').value = id;
+  openModal('transport-update-modal');
 }
 
 async function submitTransportUpdate() {
-  const transportId = document.getElementById('update-transport-id').value;
-  const newStatus   = document.getElementById('transport-new-status').value;
-  const res = await api('POST', `/api/transport/update/${encodeURIComponent(transportId)}`, { newStatus });
-  if (res.ok && res.data?.success) {
-    showToast('success', 'Status Updated', `Transport marked as ${newStatus.replace('_',' ')}`);
+  const id     = document.getElementById('update-transport-id').value;
+  const status = document.getElementById('transport-new-status').value;
+  const res = await api('POST', `/api/transport/update/${id}`, { newStatus: status });
+  if (res.ok) {
     closeModal('transport-update-modal');
+    showToast('success','Transport Updated', `Status: ${status}`);
     loadTransport();
   } else {
-    showToast('error', 'Update Failed', res.data?.message || 'Error');
+    showToast('error','Update Failed', res.data?.message || res.error);
   }
 }
 
 // ══════════════════════════════════════════════════════════════
-// AUDIT TRAIL
+// AUDIT
 // ══════════════════════════════════════════════════════════════
-async function buildAuditTrail() {
-  const el = document.getElementById('audit-entries');
-  el.innerHTML = '<div class="loading-row"><span class="spinner"></span> Reconstructing audit trail…</div>';
-
-  const [donors, recipients, matches, transports] = await Promise.all([
-    api('GET', '/api/donor/list'), api('GET', '/api/recipient/list'),
-    api('GET', '/api/match/list'), api('GET', '/api/transport/list'),
+async function loadAudit() {
+  const [d, r, m, t] = await Promise.all([
+    api('GET','/api/donor/list'), api('GET','/api/recipient/list'),
+    api('GET','/api/match/list'), api('GET','/api/transport/list'),
   ]);
-
+  const el = document.getElementById('audit-list');
   const events = [];
-  const dList = donors.ok && donors.data?.data ? donors.data.data : [];
-  dList.forEach(d => events.push({ time: d.registrationTime, color: '#0c9488', icon: '❤',
-    action: `Donor Registered — ${d.organType}`,
-    meta: `${d.bloodType.replace('_',' ')} · ${d.location} · ${d.registeredBy}`, id: d.linearId }));
 
-  const rList = recipients.ok && recipients.data?.data ? recipients.data.data : [];
-  rList.forEach(r => events.push({ time: r.registrationTime, color: '#2563eb', icon: '👤',
-    action: `Recipient Registered — ${r.organNeeded}`,
-    meta: `${r.bloodType.replace('_',' ')} · ${r.location} · Condition ${r.conditionScore}/10`, id: r.linearId }));
-
-  const mList = matches.ok && matches.data?.data ? matches.data.data : [];
-  mList.forEach(m => {
-    events.push({ time: m.matchedAt, color: '#b45309', icon: '🔗',
-      action: `Match Created — ${m.organType} · Score ${m.matchScore.toFixed(1)}`,
-      meta: `${m.donorHospital} → ${m.recipientHospital}`, id: m.linearId });
-    if (m.resolvedAt) events.push({ time: m.resolvedAt,
-      color: m.status === 'CONFIRMED' ? '#16a34a' : '#dc2626',
-      icon: m.status === 'CONFIRMED' ? '✓' : '✗',
-      action: `Match ${m.status} — ${m.organType}`,
-      meta: m.rejectionReason ? `Reason: ${m.rejectionReason}` : 'Approved', id: m.linearId });
+  (d.ok && d.data?.data || []).forEach(x => events.push({
+    time: x.registrationTime, color: '#0c9488', icon: '❤',
+    action: `Donor Registered — status: ${x.status}`,
+    meta: `Registered by ${x.registeredBy} · All fields AES-256 encrypted`, id: x.linearId
+  }));
+  (r.ok && r.data?.data || []).forEach(x => events.push({
+    time: x.registrationTime, color: '#2563eb', icon: '👤',
+    action: `Patient Registered — status: ${x.status}`,
+    meta: `Registered by ${x.registeredBy} · All fields AES-256 encrypted`, id: x.linearId
+  }));
+  (m.ok && m.data?.data || []).forEach(x => {
+    events.push({ time: x.matchedAt, color: '#4f46e5', icon: '🔐',
+      action: `Match Created by MatchingAuthority — ${x.organType}`,
+      meta: `Score ${x.matchScore?.toFixed(1)} · ${x.donorHospital} → ${x.recipientHospital}`, id: x.linearId });
+    if (x.resolvedAt) events.push({ time: x.resolvedAt, color: x.status === 'CONFIRMED' ? '#16a34a' : '#dc2626', icon: x.status === 'CONFIRMED' ? '✅' : '✕',
+      action: `Match ${x.status}`, meta: x.rejectionReason || 'Admin approved', id: x.linearId });
   });
-
-  const tList = transports.ok && transports.data?.data ? transports.data.data : [];
-  tList.forEach(t => {
-    events.push({ time: t.dispatchTime, color: '#7c3aed', icon: '🚑',
-      action: `Transport Dispatched — ${t.organType}`,
-      meta: `${t.originHospital} → ${t.destinationHospital}`, id: t.linearId });
-    if (t.deliveredAt) events.push({ time: t.deliveredAt, color: '#16a34a', icon: '✅',
-      action: `Organ Delivered — ${t.organType}`,
-      meta: `Delivered to ${t.destinationHospital}`, id: t.linearId });
+  (t.ok && t.data?.data || []).forEach(x => {
+    events.push({ time: x.dispatchTime, color: '#7c3aed', icon: '🚑',
+      action: `Transport Dispatched — ${x.organType}`,
+      meta: `${x.originHospital} → ${x.destinationHospital} · ${x.viabilityWindowHours}h`, id: x.linearId });
+    if (x.deliveredAt) events.push({ time: x.deliveredAt, color: '#16a34a', icon: '✅',
+      action: `Organ Delivered — ${x.organType}`,
+      meta: `Delivered to ${x.destinationHospital}`, id: x.linearId });
   });
 
   events.sort((a, b) => new Date(b.time) - new Date(a.time));
-
   if (!events.length) {
-    el.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><p>No ledger events found</p></div>';
-    return;
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><p>No ledger events found</p></div>'; return;
   }
-
   el.innerHTML = events.map(e => `
     <div class="audit-entry">
       <div style="display:flex;flex-direction:column;align-items:center;gap:0;margin-top:3px">
@@ -994,14 +764,43 @@ async function buildAuditTrail() {
 }
 
 // ══════════════════════════════════════════════════════════════
+// MY RECORDS
+// ══════════════════════════════════════════════════════════════
+async function loadMyRecords() {
+  const [donors, recips] = await Promise.all([
+    api('GET','/api/donor/list'), api('GET','/api/recipient/list')
+  ]);
+  const myNode = state.role?.node;
+  document.getElementById('my-records-title').textContent = `Records for ${myNode}`;
+
+  const myDonors = (donors.ok ? donors.data?.data || [] : []).filter(d => d.registeredBy === myNode);
+  const myRecips = (recips.ok ? recips.data?.data || [] : []).filter(r => r.registeredBy === myNode);
+
+  const renderCard = (list, type) => list.length ? list.map(item => `
+    <div style="padding:0.75rem;border-bottom:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.25rem">
+        ${type === 'donor' ? getDonorStatusBadge(item.status) : getRecipientStatusBadge(item.status)}
+        <span class="audit-id">${shortId(item.linearId)}</span>
+      </div>
+      <div style="font-size:0.72rem;color:var(--text-3)">${fmtDate(item.registrationTime)}</div>
+      <div style="font-size:0.72rem;color:var(--text-3);margin-top:2px">
+        <span class="encrypted-cell">🔒 medical fields encrypted</span>
+      </div>
+    </div>`).join('')
+    : `<div class="empty-state"><div class="empty-icon">${type === 'donor' ? '❤' : '👤'}</div><p>No ${type}s registered by this node</p></div>`;
+
+  document.getElementById('my-donors-list').innerHTML    = renderCard(myDonors, 'donor');
+  document.getElementById('my-recipients-list').innerHTML = renderCard(myRecips, 'recipient');
+}
+
+// ══════════════════════════════════════════════════════════════
 // SETTINGS
 // ══════════════════════════════════════════════════════════════
 function saveSettings() {
   const newUrl = document.getElementById('settings-api-url').value.replace(/\/$/, '');
   state.apiBase = newUrl;
-  showToast('success', 'Settings Saved', 'API base URL updated');
+  showToast('success', 'Settings Saved', `API base URL → ${newUrl}`);
 }
-
 async function testConnection() {
   const res = await api('GET', '/api/donor/list');
   if (res.ok) showToast('success', 'Connection OK', 'Server is reachable');
@@ -1016,7 +815,6 @@ function addNotif(title, body, type = 'info') {
   renderNotifList();
   document.getElementById('notif-dot').classList.add('active');
 }
-
 function renderNotifList() {
   const list = document.getElementById('notif-list');
   if (!state.notifications.length) { list.innerHTML = '<div class="notif-empty">No notifications</div>'; return; }
@@ -1027,12 +825,10 @@ function renderNotifList() {
       <div class="notif-item-time">${timeAgo(n.time)}</div>
     </div>`).join('');
 }
-
 function toggleNotifPanel() {
   document.getElementById('notif-panel').classList.toggle('open');
   document.getElementById('notif-dot').classList.remove('active');
 }
-
 function clearNotifs() { state.notifications = []; renderNotifList(); }
 
 // ══════════════════════════════════════════════════════════════
@@ -1054,12 +850,13 @@ function showToast(type, title, body) {
     toast.style.opacity = '0'; toast.style.transform = 'translateX(16px)';
     toast.style.transition = 'all 0.3s ease';
     setTimeout(() => toast.remove(), 300);
-  }, 4000);
+  }, 4500);
 }
 
 // ══════════════════════════════════════════════════════════════
-// MODAL HELPERS
+// MODALS
 // ══════════════════════════════════════════════════════════════
+function openModal(id)  { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 document.addEventListener('click', e => {
   if (e.target.classList.contains('modal-overlay')) e.target.classList.remove('open');
@@ -1069,20 +866,17 @@ document.addEventListener('click', e => {
 // BLOOD TYPE COMPAT CHART
 // ══════════════════════════════════════════════════════════════
 function buildCompatChart() {
-  const types = ['O-','O+','A-','A+','B-','B+','AB-','AB+'];
-  const compat = { 'O-':['O-','O+','A-','A+','B-','B+','AB-','AB+'], 'O+':['O+','A+','B+','AB+'], 'A-':['A-','A+','AB-','AB+'], 'A+':['A+','AB+'], 'B-':['B-','B+','AB-','AB+'], 'B+':['B+','AB+'], 'AB-':['AB-','AB+'], 'AB+':['AB+'] };
+  const types  = ['O-','O+','A-','A+','B-','B+','AB-','AB+'];
+  const compat = { 'O-':['O-','O+','A-','A+','B-','B+','AB-','AB+'],'O+':['O+','A+','B+','AB+'],'A-':['A-','A+','AB-','AB+'],'A+':['A+','AB+'],'B-':['B-','B+','AB-','AB+'],'B+':['B+','AB+'],'AB-':['AB-','AB+'],'AB+':['AB+'] };
   const el = document.getElementById('compat-chart');
   if (!el) return;
   let html = '<div class="compat-grid"><div class="compat-cell compat-hdr">D→R</div>';
   types.forEach(t => html += `<div class="compat-cell compat-hdr">${t}</div>`);
   types.forEach(rec => {
     html += `<div class="compat-cell compat-hdr">${rec}</div>`;
-    types.forEach(don => {
-      const ok = compat[don]?.includes(rec);
-      html += `<div class="compat-cell ${ok?'compat-yes':'compat-no'}">${ok?'✓':'·'}</div>`;
-    });
+    types.forEach(don => { const ok = compat[don]?.includes(rec); html += `<div class="compat-cell ${ok?'compat-yes':'compat-no'}">${ok?'✓':'·'}</div>`; });
   });
-  html += '</div><p class="form-hint" style="margin-top:0.5rem">D = Donor blood type (column header), R = Recipient blood type (row header)</p>';
+  html += '</div><p class="form-hint" style="margin-top:0.5rem">D = Donor blood type (column), R = Recipient blood type (row)</p>';
   el.innerHTML = html;
 }
 
@@ -1091,17 +885,14 @@ function buildCompatChart() {
 // ══════════════════════════════════════════════════════════════
 function shortId(id) {
   if (!id) return '—';
-  const part = id.split(',')[0].replace(/[{}]/g, '');
+  const part = id.split(',')[0].replace(/[{}]/g,'');
   return part.length > 12 ? part.slice(0, 8) + '…' : part;
 }
-
 function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso);
-  return d.toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) +
-    ' ' + d.toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' });
+  return d.toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) + ' ' + d.toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' });
 }
-
 function timeAgo(iso) {
   const diff = Date.now() - new Date(iso).getTime();
   if (diff < 60000) return 'just now';
@@ -1109,11 +900,9 @@ function timeAgo(iso) {
   if (diff < 86400000) return `${Math.floor(diff/3600000)}h ago`;
   return `${Math.floor(diff/86400000)}d ago`;
 }
-
 function organIcon(type) {
   return { KIDNEY:'🫘', LIVER:'🫀', HEART:'❤️', LUNG:'🫁', PANCREAS:'🧬', CORNEA:'👁️', SMALL_INTESTINE:'🌀' }[type] || '🫀';
 }
-
 function getDonorStatusBadge(s) {
   return `<span class="badge ${{ AVAILABLE:'badge-teal', ASSIGNED:'badge-amber', EXPIRED:'badge-red' }[s]||'badge-gray'}">${s}</span>`;
 }
@@ -1121,12 +910,11 @@ function getRecipientStatusBadge(s) {
   return `<span class="badge ${{ WAITING:'badge-blue', MATCHED:'badge-amber', TRANSPLANTED:'badge-green', REMOVED:'badge-red' }[s]||'badge-gray'}">${s}</span>`;
 }
 function getMatchBadge(s) {
-  return `<span class="badge ${{ PENDING_CONFIRMATION:'badge-amber', CONFIRMED:'badge-green', REJECTED:'badge-red' }[s]||'badge-gray'}">${s.replace('_',' ')}</span>`;
+  return `<span class="badge ${{ PENDING_CONFIRMATION:'badge-amber', CONFIRMED:'badge-green', REJECTED:'badge-red' }[s]||'badge-gray'}">${s.replace(/_/g,' ')}</span>`;
 }
 function getTransportStatusBadge(s) {
-  return `<span class="badge ${{ DISPATCHED:'badge-blue', IN_TRANSIT:'badge-amber', DELIVERED:'badge-green', FAILED:'badge-red' }[s]||'badge-gray'}">${s.replace('_',' ')}</span>`;
+  return `<span class="badge ${{ DISPATCHED:'badge-blue', IN_TRANSIT:'badge-amber', DELIVERED:'badge-green', FAILED:'badge-red' }[s]||'badge-gray'}">${s.replace(/_/g,' ')}</span>`;
 }
 function setTableLoading(tbodyId, cols) {
-  document.getElementById(tbodyId).innerHTML =
-    `<tr><td colspan="${cols}"><div class="loading-row"><span class="spinner"></span> Loading…</div></td></tr>`;
+  document.getElementById(tbodyId).innerHTML = `<tr><td colspan="${cols}"><div class="loading-row"><span class="spinner"></span> Loading…</div></td></tr>`;
 }

@@ -8,6 +8,7 @@ import com.odat.enums.OrganType
 import com.odat.enums.TransportStatus
 import net.corda.core.contracts.BelongsToContract
 import net.corda.core.contracts.ContractState
+import net.corda.core.contracts.LinearState
 import net.corda.core.contracts.StateRef
 import net.corda.core.contracts.UniqueIdentifier
 import net.corda.core.identity.AbstractParty
@@ -49,7 +50,7 @@ import java.time.Instant
 @BelongsToContract(OrganMatchContract::class)
 data class MatchState(
 
-    val linearId: UniqueIdentifier = UniqueIdentifier(),
+    override val linearId: UniqueIdentifier = UniqueIdentifier(),
 
     /** StateRef of the consumed DonorState — full audit lineage. */
     val donorStateRef: StateRef,
@@ -84,7 +85,7 @@ data class MatchState(
     val resolvedAt:  Instant? = null,
     val rejectionReason: String? = null
 
-) : ContractState {
+) : ContractState , LinearState{
 
     override val participants: List<AbstractParty>
         get() = listOf(donorHospital, recipientHospital, matchingAuthority, adminNode, governmentNode)

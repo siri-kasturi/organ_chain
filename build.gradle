@@ -1,38 +1,47 @@
 import static org.gradle.api.JavaVersion.VERSION_17
 
-buildscript { //properties that you need to build the project
+buildscript {
 
     Properties constants = new Properties()
     file("$projectDir/./constants.properties").withInputStream { constants.load(it) }
 
     ext {
-        corda_release_group = constants.getProperty("cordaReleaseGroup")
-        corda_core_release_group =  constants.getProperty("cordaCoreReleaseGroup")
-        corda_release_version = constants.getProperty("cordaVersion")
-        corda_core_release_version = constants.getProperty("cordaCoreVersion")
-        corda_gradle_plugins_version = constants.getProperty("gradlePluginsVersion")
-        kotlin_version = constants.getProperty("kotlinVersion")
-        junit_version = constants.getProperty("junitVersion")
-        quasar_version = constants.getProperty("quasarVersion")
-        log4j_version = constants.getProperty("log4jVersion")
-        slf4j_version = constants.getProperty("slf4jVersion")
-        hibernate_version = constants.getProperty("hibernateVersion")
-        corda_platform_version = constants.getProperty("platformVersion").toInteger()
-        snappy_version = constants.getProperty("snappyVersion")
-        //springboot
-        spring_boot_version = '3.2.5'
-        spring_boot_gradle_plugin_version = '3.2.5'
+        corda_release_group           = constants.getProperty("cordaReleaseGroup")
+        corda_core_release_group      = constants.getProperty("cordaCoreReleaseGroup")
+        corda_release_version         = constants.getProperty("cordaVersion")
+        corda_core_release_version    = constants.getProperty("cordaCoreVersion")
+        corda_gradle_plugins_version  = constants.getProperty("gradlePluginsVersion")
+        kotlin_version                = constants.getProperty("kotlinVersion")
+        junit_version                 = constants.getProperty("junitVersion")
+        quasar_version                = constants.getProperty("quasarVersion")
+        log4j_version                 = constants.getProperty("log4jVersion")
+        slf4j_version                 = constants.getProperty("slf4jVersion")
+        hibernate_version             = constants.getProperty("hibernateVersion")
+        corda_platform_version        = constants.getProperty("platformVersion").toInteger()
+        snappy_version                = constants.getProperty("snappyVersion")
 
-        test_add_opens = ['--add-opens', 'java.base/java.time=ALL-UNNAMED', '--add-opens', 'java.base/java.io=ALL-UNNAMED',
-                          '--add-opens', 'java.base/java.util=ALL-UNNAMED', '--add-opens', 'java.base/java.net=ALL-UNNAMED',
-                          '--add-opens', 'java.base/java.nio=ALL-UNNAMED', '--add-opens', 'java.base/java.lang.invoke=ALL-UNNAMED',
-                          '--add-opens', 'java.base/java.security.cert=ALL-UNNAMED', '--add-opens', 'java.base/java.security=ALL-UNNAMED',
-                          '--add-opens', 'java.base/javax.net.ssl=ALL-UNNAMED', '--add-opens', 'java.base/java.lang=ALL-UNNAMED',
-                          '--add-opens', 'java.base/java.util.concurrent=ALL-UNNAMED', '--add-opens', 'java.sql/java.sql=ALL-UNNAMED',]
+        spring_boot_version                = '3.2.5'
+        spring_boot_gradle_plugin_version  = '3.2.5'
 
-        test_add_opens_fx = [  '--add-exports', 'java.base/sun.nio.ch=ALL-UNNAMED',
-                               '--add-exports', 'javafx.base/com.sun.javafx=ALL-UNNAMED',
-                               '--add-exports', 'javafx.base/com.sun.javafx.collections=ALL-UNNAMED']
+        // ── Java 17 module opens required by Corda 4.x + Quasar ──────────────
+        test_add_opens = [
+                '--add-opens', 'java.base/java.time=ALL-UNNAMED',
+                '--add-opens', 'java.base/java.io=ALL-UNNAMED',
+                '--add-opens', 'java.base/java.util=ALL-UNNAMED',
+                '--add-opens', 'java.base/java.net=ALL-UNNAMED',
+                '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+                '--add-opens', 'java.base/java.lang.invoke=ALL-UNNAMED',
+                '--add-opens', 'java.base/java.security.cert=ALL-UNNAMED',
+                '--add-opens', 'java.base/java.security=ALL-UNNAMED',
+                '--add-opens', 'java.base/javax.net.ssl=ALL-UNNAMED',
+                '--add-opens', 'java.base/java.lang=ALL-UNNAMED',
+                '--add-opens', 'java.base/java.util.concurrent=ALL-UNNAMED',
+                '--add-opens', 'java.sql/java.sql=ALL-UNNAMED',
+        ]
+
+        test_add_opens_fx = [
+                '--add-exports', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        ]
     }
 
     repositories {
@@ -53,7 +62,7 @@ buildscript { //properties that you need to build the project
     }
 }
 
-allprojects { //Properties that you need to compile your project (The application)
+allprojects {
     apply from: "${rootProject.projectDir}/repositories.gradle"
     apply plugin: 'kotlin'
 
@@ -68,16 +77,15 @@ allprojects { //Properties that you need to compile your project (The applicatio
     tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile) {
         kotlinOptions {
             languageVersion = "1.9"
-            apiVersion = "1.9"
-            jvmTarget = VERSION_17
-            javaParameters = true   // Useful for reflection.
+            apiVersion      = "1.9"
+            jvmTarget       = VERSION_17
+            javaParameters  = true
         }
     }
 
     jar {
-        // This makes the JAR's SHA-256 hash repeatable.
         preserveFileTimestamps = false
-        reproducibleFileOrder = true
+        reproducibleFileOrder  = true
     }
 }
 
@@ -93,16 +101,13 @@ sourceSets {
     }
 }
 
-//Module dependencis
 dependencies {
-    // Corda dependencies.
     cordaProvided "$corda_core_release_group:corda-core:$corda_core_release_version"
     cordaBootstrapper ("$corda_release_group:corda-node-api:$corda_release_version") {
         exclude group: "ch.qos.logback", module: "logback-classic"
     }
     corda "$corda_release_group:corda:$corda_release_version"
 
-    // CorDapp dependencies.
     cordapp project(":workflows")
     cordapp project(":contracts")
 
@@ -116,14 +121,50 @@ cordapp {
     targetPlatformVersion corda_platform_version.toInteger()
 }
 
-//Task to deploy the nodes in order to bootstrap a network
+// ════════════════════════════════════════════════════════════════════════════
+// NETWORK TOPOLOGY
+// ════════════════════════════════════════════════════════════════════════════
+//
+//  Node                       P2P    RPC     Admin    Spring Boot  Role
+//  ─────────────────────────  ─────  ──────  ───────  ───────────  ─────────────────────────────
+//  Notary (non-validating)    10002  10003   10043    —            Uniqueness service
+//  HospitalA  (Hyderabad)     10005  10006   10046    8080         Register donors & recipients
+//  HospitalB  (Mumbai)        10008  10009   10049    8081         Register donors & recipients
+//  MatchingAuthority          10011  10012   10052    8082         Decrypt + run matching algorithm
+//  AdminNode  (Chennai)       10014  10015   10055    8083         Confirm / reject matches
+//  Government (Delhi)         10017  10018   10058    —            Audit observer
+//  Transporter (Chennai)      10020  10021   10061    —            Transport dispatch & update
+//
+//  KEY CHANGE vs. previous build.gradle:
+//    MatchingAuthority node added (O=MatchingAuthority,L=Chennai,C=IN).
+//    It is the ONLY node authorised to call OrganMatchingFlow and
+//    NotifyMatchedPartiesFlow. The custom config block supplies the shared
+//    AES-256 medical key so KeyVaultService.getMedicalKey() loads it from
+//    node.conf rather than generating an ephemeral key.
+//
+//    All other nodes also receive odat_medical_field_key so they can ENCRYPT
+//    medical fields at registration time — but they do NOT run any decryption
+//    flows (operational policy enforced by @StartableByRPC placement).
+//
+//    PRODUCTION KEY CEREMONY:
+//      1. Generate the 256-bit key once:
+//           openssl rand -base64 32
+//      2. Store the output in each node's node.conf under custom.odat_medical_field_key
+//      3. Never commit the key to source control — use Vault/KMS in production.
+// ════════════════════════════════════════════════════════════════════════════
+
+// Shared AES-256 medical key (DEVELOPMENT ONLY — ephemeral, auto-generated if absent)
+// Replace with a real key from: openssl rand -base64 32
+//def devMedicalKey = "CHANGE_ME_generate_with_openssl_rand_-base64_32"
+// DEV-ONLY shared keys — same values as the DEV_* fallbacks in KeyVaultService.kt.
+// These must match exactly so deployNodes config and code fallback are consistent.
+// For production: replace with output of `openssl rand -base64 32` (three separate runs).
+def devDonorPiiKey     = "qS43Pr6L6Uj8W6Z7mN2V9xRzB4Y1aD3cE5gH7iJ9kL0="
+def devRecipientPiiKey = "mN2V9xRzB4Y1aD3cE5gH7iJ9kL0qS43Pr6L6Uj8W6Z7="
+def devMedicalKey      = "E5gH7iJ9kL0qS43Pr6L6Uj8W6Z7mN2V9xRzB4Y1aD3c="
+
 task deployNodes(type: net.corda.plugins.Cordform, dependsOn: ['jar']) {
 
-    /* This property will load the CorDapps to each of the node by default, including the Notary. You can find them
-     * in the cordapps folder of the node at build/nodes/Notary/cordapps. However, the notary doesn't really understand
-     * the notion of cordapps. In production, Notary does not need cordapps as well. This is just a short cut to load
-     * the Corda network bootstrapper.
-     */
     nodeDefaults {
         projectCordapp {
             deploy = false
@@ -131,29 +172,20 @@ task deployNodes(type: net.corda.plugins.Cordform, dependsOn: ['jar']) {
         cordapp project(':contracts')
         cordapp project(':workflows')
         runSchemaMigration = true
-
-        // ─── Java 17 module-system fix (REQUIRED for Corda 4.x + Java 17) ───────
-        // Corda's Quasar fibers + Kryo serializer need reflective access to
-        // private fields in java.base. Java 17 blocks this by default.
-        //
-        // PRIMARY fix: RegisterDonorFlow and RegisterRecipientFlow are refactored
-        // so SecretKey never appears on the Quasar fiber stack (encryptDonorPii /
-        // encryptRecipientPii helpers are non-@Suspendable).
-        //
-        // SECONDARY fix (belt-and-suspenders): these --add-opens flags allow Kryo
-        // to access any other java.base types it encounters during checkpointing.
-        // ─────────────────────────────────────────────────────────────────────────
-
     }
+
+    // ── Notary ───────────────────────────────────────────────────────────────
     node {
         name "O=Notary,L=Chennai,C=IN"
-        notary = [validating : false]
+        notary = [validating: false]
         p2pPort 10002
         rpcSettings {
             address("localhost:10003")
             adminAddress("localhost:10043")
         }
     }
+
+    // ── HospitalA (Hyderabad) — register donors + recipients, Spring Boot :8080 ──
     node {
         name "O=HospitalA,L=Hyderabad,C=IN"
         p2pPort 10005
@@ -161,53 +193,99 @@ task deployNodes(type: net.corda.plugins.Cordform, dependsOn: ['jar']) {
             address("localhost:10006")
             adminAddress("localhost:10046")
         }
-        rpcUsers = [[ user: "hospitalA", "password": "HospA@2024", "permissions": ["ALL"]]]
+        rpcUsers = [[user: "hospitalA", "password": "HospA@2024", "permissions": ["ALL"]]]
         cordapp project(':contracts')
         cordapp project(':workflows')
+        // Receives odat_medical_field_key so it can encrypt medical fields at registration.
+        // Never runs decryption flows.
+        extraConfig = [
+                custom: [
+                        odat_donor_pii_key     : devDonorPiiKey,
+                        odat_recipient_pii_key : devRecipientPiiKey,
+                        odat_medical_field_key : devMedicalKey
+                ]
+        ]
     }
+
+    // ── HospitalB (Mumbai) — register donors + recipients, Spring Boot :8081 ──
     node {
         name "O=HospitalB,L=Mumbai,C=IN"
         p2pPort 10008
         rpcSettings {
-            address("localhost:10007")
+            address("localhost:10009")
             adminAddress("localhost:10049")
         }
-        rpcUsers = [[ user: "hospitalB", "password": "HospB@2024", "permissions": ["ALL"]]]
+        rpcUsers = [[user: "hospitalB", "password": "HospB@2024", "permissions": ["ALL"]]]
         cordapp project(':contracts')
         cordapp project(':workflows')
+        extraConfig = [
+                custom: [
+                        odat_donor_pii_key     : devDonorPiiKey,
+                        odat_recipient_pii_key : devRecipientPiiKey,
+                        odat_medical_field_key : devMedicalKey
+                ]
+        ]
     }
+
+    // ── MatchingAuthority (Chennai) — DECRYPT + MATCH, Spring Boot :8082 ───────
+    // This is the only node that runs OrganMatchingFlow and NotifyMatchedPartiesFlow.
+    // It holds the medical decryption key. In production this node should be
+    // physically isolated and access-controlled.
     node {
-        name "O=AdminNode,L=Chennai,C=IN"
+        name "O=MatchingAuthority,L=Chennai,C=IN"
         p2pPort 10011
         rpcSettings {
             address("localhost:10012")
             adminAddress("localhost:10052")
         }
-        rpcUsers = [[ user: "admin", "password": "Admin@2024", "permissions": ["ALL"]]]
+        rpcUsers = [[user: "matchingAuth", "password": "MatchAuth@2024", "permissions": ["ALL"]]]
         cordapp project(':contracts')
         cordapp project(':workflows')
+        extraConfig = [
+                custom: [
+                        odat_donor_pii_key     : devDonorPiiKey,
+                        odat_recipient_pii_key : devRecipientPiiKey,
+                        odat_medical_field_key : devMedicalKey
+                ]
+        ]
     }
+
+    // ── AdminNode (Chennai) — confirm/reject matches, Spring Boot :8083 ────────
     node {
-        name "O=Government,L=Delhi,C=IN"
+        name "O=AdminNode,L=Chennai,C=IN"
         p2pPort 10014
         rpcSettings {
             address("localhost:10015")
             adminAddress("localhost:10055")
         }
-        rpcUsers = [[ user: "govt", "password": "Govt@2024", "permissions": ["ALL"]]]
+        rpcUsers = [[user: "admin", "password": "Admin@2024", "permissions": ["ALL"]]]
         cordapp project(':contracts')
         cordapp project(':workflows')
     }
+
+    // ── GovernmentNode (Delhi) — audit observer, no Spring Boot ────────────────
     node {
-        name "O=Transporter,L=Chennai,C=IN"
+        name "O=Government,L=Delhi,C=IN"
         p2pPort 10017
         rpcSettings {
             address("localhost:10018")
             adminAddress("localhost:10058")
         }
-        rpcUsers = [[ user: "transporter", "password": "Trans@2024", "permissions": ["ALL"]]]
+        rpcUsers = [[user: "govt", "password": "Govt@2024", "permissions": ["ALL"]]]
         cordapp project(':contracts')
         cordapp project(':workflows')
     }
 
+    // ── Transporter (Chennai) — transport dispatch + status update ──────────────
+    node {
+        name "O=Transporter,L=Chennai,C=IN"
+        p2pPort 10020
+        rpcSettings {
+            address("localhost:10021")
+            adminAddress("localhost:10061")
+        }
+        rpcUsers = [[user: "transporter", "password": "Trans@2024", "permissions": ["ALL"]]]
+        cordapp project(':contracts')
+        cordapp project(':workflows')
+    }
 }

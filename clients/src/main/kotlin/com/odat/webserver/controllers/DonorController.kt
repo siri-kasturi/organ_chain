@@ -133,7 +133,7 @@ class DonorController(private val rpc: NodeRPCConnection) {
     @GetMapping("/{linearId}")
     fun getDonor(@PathVariable linearId: String): ResponseEntity<ApiResponse<DonorResponse>> {
         return try {
-            val uid      = UniqueIdentifier(id = UUID.fromString(linearId))
+            val uid      = UniqueIdentifier.fromString(linearId)
             val criteria = QueryCriteria.LinearStateQueryCriteria(linearId = listOf(uid))
             val donor    = rpc.proxy.vaultQueryBy<DonorState>(criteria).states.firstOrNull()
                 ?: return ResponseEntity.status(HttpStatus.NOT_FOUND).body(

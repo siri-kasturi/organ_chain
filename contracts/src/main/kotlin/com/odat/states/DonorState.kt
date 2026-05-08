@@ -4,6 +4,7 @@ import com.odat.contracts.DonorContract
 import com.odat.enums.DonorStatus
 import net.corda.core.contracts.BelongsToContract
 import net.corda.core.contracts.ContractState
+import net.corda.core.contracts.LinearState
 import net.corda.core.contracts.UniqueIdentifier
 import net.corda.core.identity.AbstractParty
 import net.corda.core.identity.Party
@@ -50,7 +51,7 @@ import java.time.Instant
 data class DonorState(
 
     // ── Identity ───────────────────────────────────────────────────────────
-    val linearId: UniqueIdentifier = UniqueIdentifier(),
+    override val linearId: UniqueIdentifier = UniqueIdentifier(),
 
     // ── Encrypted personal fields ──────────────────────────────────────────
     /** AES-256-GCM encrypted donor full name. */
@@ -103,7 +104,7 @@ data class DonorState(
 
     val registrationTime: Instant = Instant.now()
 
-) : ContractState {
+) : ContractState, LinearState {
 
     override val participants: List<AbstractParty>
         get() = listOf(registeredBy, matchingAuthority, adminNode, governmentNode)

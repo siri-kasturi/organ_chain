@@ -280,7 +280,7 @@ class TransportController(private val rpc: NodeRPCConnection) {
     @GetMapping("/{linearId}")
     fun getTransport(@PathVariable linearId: String): ResponseEntity<ApiResponse<TransportResponse>> {
         return try {
-            val uid      = UniqueIdentifier(id = UUID.fromString(linearId))
+            val uid      = UniqueIdentifier.fromString(linearId)
             val criteria = QueryCriteria.LinearStateQueryCriteria(linearId = listOf(uid))
             val state    = rpc.proxy.vaultQueryBy<TransportState>(criteria).states.firstOrNull()
                 ?: return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse(false, "Transport $linearId not found"))
